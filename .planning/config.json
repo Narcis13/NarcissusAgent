@@ -8,5 +8,6 @@
     "research": true,
     "plan_check": false,
     "verifier": true
-  }
+  },
+  "autonomous": true
 }
