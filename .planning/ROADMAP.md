@@ -19,6 +19,14 @@
 
 **Dependencies:** None (foundation)
 
+**Plans:** 4 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Project setup, Bun upgrade, shared type definitions
+- [ ] 01-02-PLAN.md — PTY Manager implementation (PTY-01 through PTY-05)
+- [ ] 01-03-PLAN.md — Session Manager + REST API (SES-01 through SES-03)
+- [ ] 01-04-PLAN.md — CLI entry point integration (LOOP-01)
+
 **Requirements:**
 - PTY-01: System can spawn Claude Code CLI in a pseudo-terminal
 - PTY-02: System captures all output from Claude Code in real-time
@@ -104,7 +112,7 @@
 
 | Phase | Status | Progress |
 |-------|--------|----------|
-| 1 - Core Foundation | Pending | 0% |
+| 1 - Core Foundation | Planning Complete | 0% |
 | 2 - Output Analysis & Loop | Pending | 0% |
 | 3 - AI Supervisor | Pending | 0% |
 | 4 - Web Interface | Pending | 0% |
