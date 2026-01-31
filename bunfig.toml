@@ -1,0 +1,7 @@
+[install]
+# Disable telemetry
+telemetry = false
+
+[run]
+# Silent mode for cleaner output
+silent = false
