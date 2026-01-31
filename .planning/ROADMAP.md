@@ -22,10 +22,10 @@
 **Plans:** 4 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Project setup, Bun upgrade, shared type definitions
-- [ ] 01-02-PLAN.md — PTY Manager implementation (PTY-01 through PTY-05)
-- [ ] 01-03-PLAN.md — Session Manager + REST API (SES-01 through SES-03)
-- [ ] 01-04-PLAN.md — CLI entry point integration (LOOP-01)
+- [x] 01-01-PLAN.md — Project setup, Bun upgrade, shared type definitions
+- [x] 01-02-PLAN.md — PTY Manager implementation (PTY-01 through PTY-05)
+- [x] 01-03-PLAN.md — Session Manager + REST API (SES-01 through SES-03)
+- [x] 01-04-PLAN.md — CLI entry point integration (LOOP-01)
 
 **Requirements:**
 - PTY-01: System can spawn Claude Code CLI in a pseudo-terminal
@@ -112,7 +112,7 @@ Plans:
 
 | Phase | Status | Progress |
 |-------|--------|----------|
-| 1 - Core Foundation | Planning Complete | 0% |
+| 1 - Core Foundation | Complete ✓ | 100% |
 | 2 - Output Analysis & Loop | Pending | 0% |
 | 3 - AI Supervisor | Pending | 0% |
 | 4 - Web Interface | Pending | 0% |
@@ -134,4 +134,4 @@ Plans:
 
 ---
 *Created: 2026-01-31*
-*Last updated: 2026-01-31*
+*Last updated: 2026-01-31 (Phase 1 complete)*
