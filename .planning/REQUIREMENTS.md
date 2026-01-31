@@ -1,7 +1,7 @@
 # Requirements: Claude Code Orchestrator
 
 **Defined:** 2026-01-31
-**Core Value:** The autonomous loop must work reliably: task → detect completion → supervisor decides → inject next command → repeat until done.
+**Core Value:** The autonomous loop must work reliably: task -> detect completion -> supervisor decides -> inject next command -> repeat until done.
 
 ## v1 Requirements
 
@@ -32,7 +32,7 @@
 ### Autonomous Loop
 
 - [ ] **LOOP-01**: System accepts initial task via CLI argument (e.g., `cco "build a todo app"`)
-- [ ] **LOOP-02**: System runs autonomous loop: spawn → monitor → detect → analyze → inject → repeat
+- [ ] **LOOP-02**: System runs autonomous loop: spawn -> monitor -> detect -> analyze -> inject -> repeat
 - [ ] **LOOP-03**: System prevents feedback loops (cooldown between supervisor calls)
 - [ ] **LOOP-04**: System stops when supervisor decides work is complete
 
@@ -98,42 +98,42 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PTY-01 | Pending | Pending |
-| PTY-02 | Pending | Pending |
-| PTY-03 | Pending | Pending |
-| PTY-04 | Pending | Pending |
-| PTY-05 | Pending | Pending |
-| OUT-01 | Pending | Pending |
-| OUT-02 | Pending | Pending |
-| OUT-03 | Pending | Pending |
-| OUT-04 | Pending | Pending |
-| OUT-05 | Pending | Pending |
-| SUP-01 | Pending | Pending |
-| SUP-02 | Pending | Pending |
-| SUP-03 | Pending | Pending |
-| SUP-04 | Pending | Pending |
-| SUP-05 | Pending | Pending |
-| LOOP-01 | Pending | Pending |
-| LOOP-02 | Pending | Pending |
-| LOOP-03 | Pending | Pending |
-| LOOP-04 | Pending | Pending |
-| SRV-01 | Pending | Pending |
-| SRV-02 | Pending | Pending |
-| SRV-03 | Pending | Pending |
-| SRV-04 | Pending | Pending |
-| UI-01 | Pending | Pending |
-| UI-02 | Pending | Pending |
-| UI-03 | Pending | Pending |
-| UI-04 | Pending | Pending |
-| SES-01 | Pending | Pending |
-| SES-02 | Pending | Pending |
-| SES-03 | Pending | Pending |
+| PTY-01 | 1 | Pending |
+| PTY-02 | 1 | Pending |
+| PTY-03 | 1 | Pending |
+| PTY-04 | 1 | Pending |
+| PTY-05 | 1 | Pending |
+| OUT-01 | 2 | Pending |
+| OUT-02 | 2 | Pending |
+| OUT-03 | 2 | Pending |
+| OUT-04 | 2 | Pending |
+| OUT-05 | 2 | Pending |
+| SUP-01 | 3 | Pending |
+| SUP-02 | 3 | Pending |
+| SUP-03 | 3 | Pending |
+| SUP-04 | 3 | Pending |
+| SUP-05 | 3 | Pending |
+| LOOP-01 | 1 | Pending |
+| LOOP-02 | 2 | Pending |
+| LOOP-03 | 2 | Pending |
+| LOOP-04 | 2 | Pending |
+| SRV-01 | 4 | Pending |
+| SRV-02 | 4 | Pending |
+| SRV-03 | 4 | Pending |
+| SRV-04 | 4 | Pending |
+| UI-01 | 4 | Pending |
+| UI-02 | 4 | Pending |
+| UI-03 | 4 | Pending |
+| UI-04 | 4 | Pending |
+| SES-01 | 1 | Pending |
+| SES-02 | 1 | Pending |
+| SES-03 | 1 | Pending |
 
 **Coverage:**
 - v1 requirements: 30 total
-- Mapped to phases: 0
-- Unmapped: 30 ⚠️
+- Mapped to phases: 30
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-01-31*
-*Last updated: 2026-01-31 after initial definition*
+*Last updated: 2026-01-31 after roadmap creation*
