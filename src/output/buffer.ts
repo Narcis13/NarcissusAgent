@@ -30,9 +30,10 @@ export class OutputBuffer {
 
     // Handle case where last line didn't end with newline
     // by joining with existing partial line
-    if (this.lines.length > 0 && !this.lines[this.lines.length - 1].endsWith('\n')) {
-      const partial = this.lines.pop() || '';
-      newLines[0] = partial + newLines[0];
+    const lastLine = this.lines[this.lines.length - 1];
+    if (this.lines.length > 0 && lastLine !== undefined && !lastLine.endsWith('\n')) {
+      this.lines.pop();
+      newLines[0] = lastLine + newLines[0];
     }
 
     this.lines.push(...newLines);
