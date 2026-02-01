@@ -1,7 +1,7 @@
 # Project State: Claude Code Orchestrator
 
 **Current Phase:** 2 (in progress)
-**Current Plan:** 02 complete
+**Current Plan:** 03 complete
 **Status:** Phase 2 In Progress
 **Last Updated:** 2026-02-01
 
@@ -10,11 +10,11 @@
 | Phase | Status | Progress |
 |-------|--------|----------|
 | 1 - Core Foundation | Complete | ██████████ 100% |
-| 2 - Output Analysis & Loop | In Progress | ████░░░░░░ 40% |
+| 2 - Output Analysis & Loop | In Progress | ██████░░░░ 60% |
 | 3 - AI Supervisor | Pending | ░░░░░░░░░░ 0% |
 | 4 - Web Interface | Pending | ░░░░░░░░░░ 0% |
 
-**Overall:** 6 plans complete (Phase 1 done + 02-01 + 02-02, ~35% project)
+**Overall:** 7 plans complete (Phase 1 done + 02-01 + 02-02 + 02-03, ~40% project)
 
 ## Project Reference
 
@@ -27,15 +27,15 @@ See: .planning/PROJECT.md (updated 2026-01-31)
 ## Current Position
 
 - **Phase:** 2 - Output Analysis & Loop (IN PROGRESS)
-- **Plan:** 02 complete (Output Analyzer)
+- **Plan:** 03 complete (Loop Controller)
 - **Blocking:** Nothing
-- **Next action:** Execute 02-03-PLAN.md (Loop Controller)
+- **Next action:** Execute remaining Phase 2 plans or advance to Phase 3
 
 ## Performance Metrics
 
 | Metric | Value |
 |--------|-------|
-| Plans completed | 6 |
+| Plans completed | 7 |
 | Plans failed | 0 |
 | Requirements done | 0/30 |
 | Session started | 2026-01-31 |
@@ -62,6 +62,9 @@ See: .planning/PROJECT.md (updated 2026-01-31)
 | 70% confidence threshold | DEFAULT_CONFIDENCE_THRESHOLD per requirements | 2026-02-01 |
 | PatternCategory 'completion' -> OutputState 'completed' | Category uses noun, state uses past tense for API clarity | 2026-02-01 |
 | EXCLUSIVE_PENALTY = 0.2 | Penalize other categories when exit code patterns match | 2026-02-01 |
+| Cooldown starts AFTER action | Rate limiting vs debounce - ensures minimum gap between supervisor calls | 2026-02-01 |
+| Supervisor injection via setSupervisor() | Allows Phase 3 to provide Claude API implementation | 2026-02-01 |
+| Only completed/error states trigger supervisor | Running and prompt_ready don't need supervisor intervention | 2026-02-01 |
 
 ### Technical Notes
 
@@ -84,6 +87,9 @@ See: .planning/PROJECT.md (updated 2026-01-31)
 - Exclusive patterns for exit codes penalize other categories
 - OutputAnalyzer.analyze() returns AnalysisResult with state, confidence, matches, cleanOutput, categoryScores
 - TDD approach: test commit followed by feat commit for feature development
+- LoopController.processOutput() is main entry point from PTYManager.onData
+- Event handlers for external observation without tight coupling
+- Cooldown class prevents feedback loops via rate limiting (not debounce)
 
 ### TODOs
 
@@ -110,12 +116,14 @@ See: .planning/PROJECT.md (updated 2026-01-31)
 | OutputBuffer | Complete | Ring buffer for memory-bounded output accumulation |
 | Pattern Definitions | Complete | 21 patterns for state detection with weights |
 | OutputAnalyzer | Complete | ANSI stripping, confidence scoring, exclusive penalties |
-| LoopController | Pending | Autonomous loop orchestration |
+| Loop Types | Complete | LoopState, LoopConfig, SupervisorDecision types |
+| Cooldown | Complete | Rate limiter preventing feedback loops |
+| LoopController | Complete | Autonomous loop orchestration with supervisor injection |
 
 ## Session Continuity
 
 **Last session:** 2026-02-01
-**Stopped at:** Completed 02-02-PLAN.md (Output Analyzer)
+**Stopped at:** Completed 02-03-PLAN.md (Loop Controller)
 **Resume file:** None
 
 ---
