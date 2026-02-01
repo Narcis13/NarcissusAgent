@@ -80,7 +80,9 @@ const loop = new LoopController(
     },
     onInject: (cmd) => {
       console.error(`[CCO] Injecting command: ${cmd}`);
-      // TODO: Write to PTY in Phase 3
+      if (ptyManager.isRunning) {
+        ptyManager.write(cmd + "\n");
+      }
     },
     onStop: (reason) => {
       console.error(`[CCO] Loop stopped: ${reason}`);
