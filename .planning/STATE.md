@@ -1,8 +1,8 @@
 # Project State: Claude Code Orchestrator
 
-**Current Phase:** 2 (in progress)
-**Current Plan:** 03 complete
-**Status:** Phase 2 In Progress
+**Current Phase:** 2 (complete)
+**Current Plan:** 04 complete (Phase 2 complete)
+**Status:** Phase 2 Complete
 **Last Updated:** 2026-02-01
 
 ## Progress
@@ -10,11 +10,11 @@
 | Phase | Status | Progress |
 |-------|--------|----------|
 | 1 - Core Foundation | Complete | ██████████ 100% |
-| 2 - Output Analysis & Loop | In Progress | ██████░░░░ 60% |
+| 2 - Output Analysis & Loop | Complete | ██████████ 100% |
 | 3 - AI Supervisor | Pending | ░░░░░░░░░░ 0% |
 | 4 - Web Interface | Pending | ░░░░░░░░░░ 0% |
 
-**Overall:** 7 plans complete (Phase 1 done + 02-01 + 02-02 + 02-03, ~40% project)
+**Overall:** 8 plans complete (Phase 1 + Phase 2, ~50% project)
 
 ## Project Reference
 
@@ -22,20 +22,20 @@ See: .planning/PROJECT.md (updated 2026-01-31)
 
 **Core value:** The autonomous loop must work reliably: task -> detect completion -> supervisor decides -> inject next command -> repeat until done.
 
-**Current focus:** Phase 2 - Building output analysis infrastructure
+**Current focus:** Phase 2 Complete - Ready for Phase 3 (AI Supervisor)
 
 ## Current Position
 
-- **Phase:** 2 - Output Analysis & Loop (IN PROGRESS)
-- **Plan:** 03 complete (Loop Controller)
+- **Phase:** 2 - Output Analysis & Loop (COMPLETE)
+- **Plan:** 04 complete (CLI Integration)
 - **Blocking:** Nothing
-- **Next action:** Execute remaining Phase 2 plans or advance to Phase 3
+- **Next action:** Begin Phase 3 - AI Supervisor
 
 ## Performance Metrics
 
 | Metric | Value |
 |--------|-------|
-| Plans completed | 7 |
+| Plans completed | 8 |
 | Plans failed | 0 |
 | Requirements done | 0/30 |
 | Session started | 2026-01-31 |
@@ -65,6 +65,8 @@ See: .planning/PROJECT.md (updated 2026-01-31)
 | Cooldown starts AFTER action | Rate limiting vs debounce - ensures minimum gap between supervisor calls | 2026-02-01 |
 | Supervisor injection via setSupervisor() | Allows Phase 3 to provide Claude API implementation | 2026-02-01 |
 | Only completed/error states trigger supervisor | Running and prompt_ready don't need supervisor intervention | 2026-02-01 |
+| Verbose flag default false | Analysis logging gated by --verbose to reduce noise | 2026-02-01 |
+| Loop stats on exit | Report iterations and supervisor calls for monitoring | 2026-02-01 |
 
 ### Technical Notes
 
@@ -79,8 +81,8 @@ See: .planning/PROJECT.md (updated 2026-01-31)
 - PTYManager throws on double spawn and writes to closed terminal (defensive API)
 - SessionManager validates transitions, setError bypasses for error recovery
 - REST API returns runtime in both ms and formatted string
-- CLI uses parseArgs for argument parsing with --port and --help options
-- Signal handlers (SIGINT/SIGTERM) trigger graceful shutdown with PTY cleanup
+- CLI uses parseArgs for argument parsing with --port, --verbose, and --help options
+- Signal handlers (SIGINT/SIGTERM) trigger graceful shutdown with PTY and loop cleanup
 - strip-ansi@7.1.2 for ANSI escape code stripping (ESM-only)
 - OutputBuffer uses ring buffer with line-aware splitting for partial output handling
 - 21 detection patterns across 4 categories: completion, error, prompt_ready, running
@@ -90,6 +92,7 @@ See: .planning/PROJECT.md (updated 2026-01-31)
 - LoopController.processOutput() is main entry point from PTYManager.onData
 - Event handlers for external observation without tight coupling
 - Cooldown class prevents feedback loops via rate limiting (not debounce)
+- All Phase 2 types re-exported from src/types.ts for convenient imports
 
 ### TODOs
 
@@ -119,11 +122,12 @@ See: .planning/PROJECT.md (updated 2026-01-31)
 | Loop Types | Complete | LoopState, LoopConfig, SupervisorDecision types |
 | Cooldown | Complete | Rate limiter preventing feedback loops |
 | LoopController | Complete | Autonomous loop orchestration with supervisor injection |
+| CLI Integration | Complete | LoopController wired to PTY output, event handlers configured |
 
 ## Session Continuity
 
 **Last session:** 2026-02-01
-**Stopped at:** Completed 02-03-PLAN.md (Loop Controller)
+**Stopped at:** Completed 02-04-PLAN.md (CLI Integration) - Phase 2 Complete
 **Resume file:** None
 
 ---
