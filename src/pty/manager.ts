@@ -81,6 +81,17 @@ export class PTYManager implements IPTYManager {
     this.terminal = null;
   }
 
+  /**
+   * Resize the PTY to new dimensions
+   * @param cols - Number of columns
+   * @param rows - Number of rows
+   */
+  resize(cols: number, rows: number): void {
+    if (this.terminal && !this.terminal.closed) {
+      this.terminal.resize(cols, rows);
+    }
+  }
+
   /** Whether the subprocess is currently running */
   get isRunning(): boolean {
     return this.proc !== null && !this.proc.killed;
