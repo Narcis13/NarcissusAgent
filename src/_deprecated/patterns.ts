@@ -46,6 +46,17 @@ export const PATTERNS: PatternWeight[] = [
     category: 'completion',
     weight: 0.3,
   },
+  // Claude's typical greeting/ready prompts
+  {
+    pattern: /How can I help you/i,
+    category: 'completion',
+    weight: 0.35,
+  },
+  {
+    pattern: /What can I (?:help|do|assist)/i,
+    category: 'completion',
+    weight: 0.35,
+  },
   // Exit code 0 is definitive completion
   {
     pattern: /exited? with code:?\s*0/i,
@@ -136,6 +147,17 @@ export const PATTERNS: PatternWeight[] = [
   },
   {
     pattern: /(?:please wait|in progress)/i,
+    category: 'running',
+    weight: 0.25,
+  },
+  // Claude Code TUI progress indicators
+  {
+    pattern: /Baking/i,
+    category: 'running',
+    weight: 0.3,
+  },
+  {
+    pattern: /thinking/i,
     category: 'running',
     weight: 0.25,
   },

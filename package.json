@@ -10,6 +10,9 @@
   "scripts": {
     "start": "bun run src/index.ts",
     "dev": "bun --watch run src/index.ts",
+    "debug": "bun run src/index.ts --debug --debug-file debug.log --debug-file-only",
+    "debug:both": "bun run src/index.ts --debug --debug-file debug.log",
+    "debug:stderr": "bun run src/index.ts --debug",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

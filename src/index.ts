@@ -2,16 +2,17 @@
 /**
  * Claude Code Orchestrator (CCO) - CLI Entry Point
  *
- * Integrates PTYManager, SessionManager, and Hono server into a working
- * CLI application. Spawns Claude Code with a task description and streams
- * output while tracking session state.
+ * Integrates PTYManager, SessionManager, HooksController, and Hono server into
+ * a working CLI application. Spawns Claude Code with a task description and
+ * streams output while receiving deterministic events via hooks.
  */
 
 import { parseArgs } from "util";
+import { appendFileSync, writeFileSync } from "node:fs";
 import { PTYManager } from "./pty";
 import { sessionManager } from "./session";
-import { createServer } from "./server";
-import { LoopController } from "./loop/controller.ts";
+import { createServer, setHooksController } from "./server";
+import { HooksController } from "./hooks";
 
 // Parse CLI arguments
 const { values, positionals } = parseArgs({
@@ -20,33 +21,79 @@ const { values, positionals } = parseArgs({
     port: { type: "string", default: "3000" },
     help: { type: "boolean", short: "h" },
     verbose: { type: "boolean", short: "v", default: false },
+    debug: { type: "boolean", short: "d", default: false },
+    "debug-file": { type: "string" },
+    "debug-file-only": { type: "boolean", default: false },
   },
   strict: true,
   allowPositionals: true,
 });
 
+// Debug logging utility
+const debugMode = values.debug ?? false;
+const debugFile = values["debug-file"];
+const debugFileOnly = values["debug-file-only"] ?? false;
+
+// Clear debug file at start if specified
+if (debugFile) {
+  writeFileSync(debugFile, `[CCO] Debug log started at ${new Date().toISOString()}\n`);
+}
+
+function debugLog(message: string, data?: unknown) {
+  if (!debugMode && !values.verbose) return;
+
+  const timestamp = new Date().toISOString().split("T")[1].slice(0, -1);
+  const line = data
+    ? `[CCO ${timestamp}] ${message} ${JSON.stringify(data)}`
+    : `[CCO ${timestamp}] ${message}`;
+
+  if (debugFile) {
+    appendFileSync(debugFile, line + "\n");
+  }
+
+  // Only print to stderr if not file-only mode
+  if (!debugFileOnly) {
+    console.error(line);
+  }
+}
+
 // Show help
-if (values.help || positionals.length === 0) {
+if (values.help) {
   console.log(`
 Claude Code Orchestrator (CCO)
 
-Usage: cco <task description> [options]
+Usage: cco [task description] [options]
 
 Options:
-  --port <number>  Server port (default: 3000)
-  -v, --verbose    Show analysis output
-  -h, --help       Show this help message
+  --port <number>       Server port (default: 3000)
+  -v, --verbose         Show hook events as they arrive
+  -d, --debug           Show ALL debug output (hooks, decisions)
+  --debug-file <path>   Write debug output to file
+  --debug-file-only     Only write to file, not stderr (use with --debug-file)
+  -h, --help            Show this help message
 
 Examples:
+  cco                                                  # Start interactive mode
   cco "build a hello world app"
   cco "fix the bug in auth" --port 4000
+  cco "test task" --debug                              # Debug to stderr
+  cco "test task" --debug --debug-file debug.log      # Debug to both
+  cco "test task" --debug --debug-file debug.log --debug-file-only  # File only
 `);
-  process.exit(values.help ? 0 : 1);
+  process.exit(0);
 }
 
-const taskDescription = positionals.join(" ");
+const taskDescription = positionals.join(" ") || "";
 const port = parseInt(values.port ?? "3000", 10);
 const verbose = values.verbose ?? false;
+const isInteractive = taskDescription === "";
+
+// Log startup info in debug mode
+if (debugMode) {
+  debugLog("=== CCO DEBUG MODE ENABLED ===");
+  debugLog("Task", taskDescription || "(interactive mode)");
+  debugLog("Config", { port, verbose, debugMode, debugFile, isInteractive });
+}
 
 // Create PTY manager
 const ptyManager = new PTYManager();
@@ -54,44 +101,80 @@ const ptyManager = new PTYManager();
 // Text decoder for output
 const decoder = new TextDecoder();
 
-// Create loop controller with event handlers
-const loop = new LoopController(
-  {
-    confidenceThreshold: 0.7,
-    minCooldownMs: 3000,
-    maxIterations: 100,
+// Create hooks controller with event handlers
+const hooksController = new HooksController({
+  onStop: (event) => {
+    if (debugMode) {
+      debugLog("=== STOP EVENT ===", {
+        sessionId: event.session_id,
+        transcriptPath: event.transcript_path,
+      });
+    } else if (verbose) {
+      console.error(`[CCO] Stop event received`);
+    }
   },
-  {
-    onAnalysis: (result) => {
-      // Only log analysis when verbose or high confidence
-      if (verbose && result.confidence > 0.5) {
-        console.error(
-          `[CCO] Analysis: state=${result.state} confidence=${result.confidence.toFixed(2)}`
-        );
-      }
-    },
-    onSupervisorCall: ({ analysis }) => {
-      console.error(`[CCO] Calling supervisor (state=${analysis.state})`);
-    },
-    onSupervisorDecision: (decision) => {
+  onTool: (event) => {
+    if (debugMode) {
+      debugLog("Tool event", {
+        tool: event.tool_name,
+        hasError: !!event.tool_response.error,
+      });
+    }
+  },
+  onSessionStart: (event) => {
+    debugLog("Session started", {
+      sessionId: event.session_id,
+      source: event.source,
+    });
+  },
+  onSessionEnd: (event) => {
+    debugLog("Session ended", {
+      sessionId: event.session_id,
+      reason: event.reason,
+    });
+  },
+  onSupervisorCall: ({ toolHistory }) => {
+    if (debugMode) {
+      debugLog("=== SUPERVISOR CALL ===", {
+        toolCount: toolHistory.length,
+        recentTools: toolHistory.slice(-3).map((t) => t.toolName),
+      });
+    } else {
+      console.error(`[CCO] Calling supervisor (${toolHistory.length} tools tracked)`);
+    }
+  },
+  onSupervisorDecision: (decision) => {
+    if (debugMode) {
+      debugLog("=== SUPERVISOR DECISION ===", decision);
+    } else {
       console.error(
         `[CCO] Supervisor decision: ${decision.action} - ${decision.reason}`
       );
-    },
-    onInject: (cmd) => {
-      console.error(`[CCO] Injecting command: ${cmd}`);
-      if (ptyManager.isRunning) {
-        ptyManager.write(cmd + "\n");
-      }
-    },
-    onStop: (reason) => {
-      console.error(`[CCO] Loop stopped: ${reason}`);
-    },
-    onError: (err) => {
-      console.error(`[CCO] Loop error: ${err.message}`);
-    },
+    }
+  },
+  onInject: (cmd) => {
+    debugLog("Injecting command", cmd);
+    console.error(`[CCO] Injecting command: ${cmd}`);
+  },
+  onControllerStop: (reason) => {
+    debugLog("Controller stopped", reason);
+    console.error(`[CCO] Controller stopped: ${reason}`);
+  },
+  onError: (err) => {
+    debugLog("Controller error", { message: err.message, stack: err.stack });
+    console.error(`[CCO] Controller error: ${err.message}`);
+  },
+});
+
+// Set up inject callback to write to PTY
+hooksController.setOnInject((cmd) => {
+  if (ptyManager.isRunning) {
+    ptyManager.write(cmd + "\n");
   }
-);
+});
+
+// Register controller with server routes
+setHooksController(hooksController);
 
 // Graceful shutdown handler
 async function shutdown(signal: string) {
@@ -103,9 +186,9 @@ async function shutdown(signal: string) {
   }
 
   try {
-    // Stop the loop if running
-    if (loop.isRunning()) {
-      loop.stop(`Received ${signal}`);
+    // Stop the controller if running
+    if (hooksController.isRunning()) {
+      hooksController.stop(`Received ${signal}`);
     }
 
     await ptyManager.cleanup();
@@ -133,9 +216,14 @@ function getTerminalSize() {
 // Main function
 async function main() {
   console.log(`[CCO] Starting Claude Code Orchestrator`);
-  console.log(`[CCO] Task: ${taskDescription}`);
+  if (isInteractive) {
+    console.log(`[CCO] Mode: Interactive (no initial task)`);
+  } else {
+    console.log(`[CCO] Task: ${taskDescription}`);
+  }
   console.log(`[CCO] Server: http://localhost:${port}`);
   console.log(`[CCO] Session API: http://localhost:${port}/api/session`);
+  console.log(`[CCO] Hooks API: http://localhost:${port}/api/hooks/*`);
   console.log("");
 
   // Start HTTP server
@@ -143,7 +231,7 @@ async function main() {
   console.log(`[CCO] Server running on port ${port}`);
 
   // Start session
-  sessionManager.startTask(taskDescription);
+  sessionManager.startTask(taskDescription || "interactive session");
   console.log(`[CCO] Session state: ${sessionManager.getState().status}`);
   console.log("");
   console.log("--- Claude Code Output ---");
@@ -152,18 +240,24 @@ async function main() {
   // Get initial terminal size
   const { cols, rows } = getTerminalSize();
 
-  // Spawn Claude Code with the task
+  // Build command: claude --dangerously-skip-permissions [task]
+  const command = ["claude", "--dangerously-skip-permissions"];
+  if (taskDescription) {
+    command.push(taskDescription);
+  }
+
+  // Spawn Claude Code
   try {
     await ptyManager.spawn({
-      command: ["claude", taskDescription],
+      command,
+      env: {
+        ...process.env,
+        CCO_PORT: String(port),
+      },
       onData: (data) => {
         // Stream output to stdout (preserves ANSI colors)
+        // No pattern analysis - events come via hooks
         process.stdout.write(decoder.decode(data));
-
-        // Feed output to loop controller for analysis
-        loop.processOutput(data).catch((err) => {
-          console.error("[CCO] Process output error:", err);
-        });
       },
       onExit: (exitCode, signalCode) => {
         // Restore stdin to normal mode
@@ -171,9 +265,9 @@ async function main() {
           process.stdin.setRawMode(false);
         }
 
-        // Stop the loop
-        if (loop.isRunning()) {
-          loop.stop(`PTY exited with code ${exitCode}`);
+        // Stop the controller
+        if (hooksController.isRunning()) {
+          hooksController.stop(`PTY exited with code ${exitCode}`);
         }
 
         console.log("");
@@ -194,10 +288,10 @@ async function main() {
           console.log(`[CCO] Runtime: ${formatRuntime(metadata.runtime)}`);
         }
 
-        // Report loop stats
-        const stats = loop.getStats();
+        // Report hooks stats
+        const stats = hooksController.getStats();
         console.log(
-          `[CCO] Loop stats: ${stats.iterations} iterations, ${stats.supervisorCalls} supervisor calls`
+          `[CCO] Hooks stats: ${stats.stopEvents} stops, ${stats.toolCalls} tools, ${stats.supervisorCalls} supervisor calls`
         );
 
         // Exit with Claude's exit code
@@ -207,10 +301,11 @@ async function main() {
       rows,
     });
 
-    // Start the loop after PTY spawns
-    loop.start(taskDescription);
-    if (verbose) {
-      console.log(`[CCO] Loop started in monitoring state`);
+    // Start the hooks controller after PTY spawns
+    hooksController.start(taskDescription || "interactive session");
+    debugLog("Hooks controller started", { state: "monitoring", taskDescription: taskDescription || "interactive" });
+    if (verbose && !debugMode) {
+      console.log(`[CCO] Hooks controller started in monitoring state`);
     }
 
     // Forward stdin to PTY for interactive mode

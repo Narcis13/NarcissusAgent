@@ -1,13 +1,30 @@
 /**
  * Hono REST API Routes
  *
- * Provides HTTP endpoints for session status and health checks.
+ * Provides HTTP endpoints for session status, health checks, and hook events.
  * CORS enabled for Phase 4 web UI integration.
  */
 
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { sessionManager } from "../session";
+import type { HooksController } from "../hooks";
+import type {
+  StopEvent,
+  ToolEvent,
+  SessionStartEvent,
+  SessionEndEvent,
+} from "../hooks";
+
+// Hooks controller reference - set via setHooksController
+let hooksController: HooksController | null = null;
+
+/**
+ * Set the hooks controller for API endpoints
+ */
+export function setHooksController(controller: HooksController): void {
+  hooksController = controller;
+}
 
 const app = new Hono();
 
@@ -22,6 +39,8 @@ app.get("/api/health", (c) => {
 // Session info endpoint (SES-03)
 app.get("/api/session", (c) => {
   const info = sessionManager.getInfo();
+  const controllerStats = hooksController?.getStats();
+
   return c.json({
     state: info.state.status,
     stateDetails: info.state,
@@ -33,6 +52,102 @@ app.get("/api/session", (c) => {
           runtimeFormatted: formatRuntime(info.metadata.runtime),
         }
       : null,
+    hooks: controllerStats
+      ? {
+          state: hooksController?.getState(),
+          stats: controllerStats,
+        }
+      : null,
+  });
+});
+
+// ============ Hook Endpoints ============
+
+/**
+ * POST /api/hooks/stop - Claude finished responding
+ * Primary completion signal from the Stop hook.
+ */
+app.post("/api/hooks/stop", async (c) => {
+  if (!hooksController) {
+    return c.json({ error: "Hooks controller not initialized" }, 503);
+  }
+
+  try {
+    const event = (await c.req.json()) as StopEvent;
+    const response = await hooksController.onStop(event);
+    return c.json(response);
+  } catch (error) {
+    console.error("[CCO] Error handling stop event:", error);
+    return c.json({ continue: true, error: String(error) });
+  }
+});
+
+/**
+ * POST /api/hooks/tool - Tool completed
+ * Tracks tool usage and detects errors.
+ */
+app.post("/api/hooks/tool", async (c) => {
+  if (!hooksController) {
+    return c.json({ error: "Hooks controller not initialized" }, 503);
+  }
+
+  try {
+    const event = (await c.req.json()) as ToolEvent;
+    const response = await hooksController.onTool(event);
+    return c.json(response);
+  } catch (error) {
+    console.error("[CCO] Error handling tool event:", error);
+    return c.json({ continue: true, error: String(error) });
+  }
+});
+
+/**
+ * POST /api/hooks/session-start - Session begins
+ */
+app.post("/api/hooks/session-start", async (c) => {
+  if (!hooksController) {
+    return c.json({ error: "Hooks controller not initialized" }, 503);
+  }
+
+  try {
+    const event = (await c.req.json()) as SessionStartEvent;
+    const response = await hooksController.onSessionStart(event);
+    return c.json(response);
+  } catch (error) {
+    console.error("[CCO] Error handling session-start event:", error);
+    return c.json({ continue: true, error: String(error) });
+  }
+});
+
+/**
+ * POST /api/hooks/session-end - Session terminates
+ */
+app.post("/api/hooks/session-end", async (c) => {
+  if (!hooksController) {
+    return c.json({ error: "Hooks controller not initialized" }, 503);
+  }
+
+  try {
+    const event = (await c.req.json()) as SessionEndEvent;
+    const response = await hooksController.onSessionEnd(event);
+    return c.json(response);
+  } catch (error) {
+    console.error("[CCO] Error handling session-end event:", error);
+    return c.json({ continue: true, error: String(error) });
+  }
+});
+
+/**
+ * GET /api/hooks/tools - Get tool history
+ */
+app.get("/api/hooks/tools", (c) => {
+  if (!hooksController) {
+    return c.json({ error: "Hooks controller not initialized" }, 503);
+  }
+
+  return c.json({
+    tools: hooksController.getToolHistory(),
+    count: hooksController.getToolHistory().length,
   });
 });
 
