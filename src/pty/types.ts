@@ -19,6 +19,8 @@ export interface PTYManagerOptions {
   cols?: number;
   /** Terminal height in rows (default: 24) */
   rows?: number;
+  /** Environment variables to pass to the subprocess */
+  env?: Record<string, string | undefined>;
 }
 
 /**

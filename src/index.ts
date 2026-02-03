@@ -2,7 +2,7 @@
 /**
  * Claude Code Orchestrator (CCO) - CLI Entry Point
  *
- * Integrates PTYManager, SessionManager, HooksController, and Hono server into
+ * Integrates PTYManager, SessionManager, HooksController, and Bun web server into
  * a working CLI application. Spawns Claude Code with a task description and
  * streams output while receiving deterministic events via hooks.
  */
@@ -11,8 +11,10 @@ import { parseArgs } from "util";
 import { appendFileSync, writeFileSync } from "node:fs";
 import { PTYManager } from "./pty";
 import { sessionManager } from "./session";
-import { createServer, setHooksController } from "./server";
+import { createServer, setHooksController, initializeBroadcaster } from "./server";
 import { HooksController } from "./hooks";
+import { eventBroadcaster } from "./websocket";
+import { createMockSupervisor } from "./supervisor";
 
 // Parse CLI arguments
 const { values, positionals } = parseArgs({
@@ -40,9 +42,9 @@ if (debugFile) {
 }
 
 function debugLog(message: string, data?: unknown) {
-  if (!debugMode && !values.verbose) return;
+  if (!debugMode && !(values.verbose ?? false)) return;
 
-  const timestamp = new Date().toISOString().split("T")[1].slice(0, -1);
+  const timestamp = new Date().toISOString().split("T")[1]?.slice(0, -1) ?? "";
   const line = data
     ? `[CCO ${timestamp}] ${message} ${JSON.stringify(data)}`
     : `[CCO ${timestamp}] ${message}`;
@@ -71,6 +73,9 @@ Options:
   --debug-file <path>   Write debug output to file
   --debug-file-only     Only write to file, not stderr (use with --debug-file)
   -h, --help            Show this help message
+
+Monitor UI:
+  http://localhost:<port>/monitor    Real-time monitoring dashboard
 
 Examples:
   cco                                                  # Start interactive mode
@@ -112,6 +117,8 @@ const hooksController = new HooksController({
     } else if (verbose) {
       console.error(`[CCO] Stop event received`);
     }
+    // Broadcast to WebSocket clients
+    eventBroadcaster.broadcastHookEvent("stop", event);
   },
   onTool: (event) => {
     if (debugMode) {
@@ -120,18 +127,24 @@ const hooksController = new HooksController({
         hasError: !!event.tool_response.error,
       });
     }
+    // Broadcast to WebSocket clients
+    eventBroadcaster.broadcastHookEvent("tool", event);
   },
   onSessionStart: (event) => {
     debugLog("Session started", {
       sessionId: event.session_id,
       source: event.source,
     });
+    // Broadcast to WebSocket clients
+    eventBroadcaster.broadcastHookEvent("session-start", event);
   },
   onSessionEnd: (event) => {
     debugLog("Session ended", {
       sessionId: event.session_id,
       reason: event.reason,
     });
+    // Broadcast to WebSocket clients
+    eventBroadcaster.broadcastHookEvent("session-end", event);
   },
   onSupervisorCall: ({ toolHistory }) => {
     if (debugMode) {
@@ -142,6 +155,8 @@ const hooksController = new HooksController({
     } else {
       console.error(`[CCO] Calling supervisor (${toolHistory.length} tools tracked)`);
     }
+    // Broadcast to WebSocket clients
+    eventBroadcaster.broadcastSupervisorCall(toolHistory);
   },
   onSupervisorDecision: (decision) => {
     if (debugMode) {
@@ -151,10 +166,14 @@ const hooksController = new HooksController({
         `[CCO] Supervisor decision: ${decision.action} - ${decision.reason}`
       );
     }
+    // Broadcast to WebSocket clients
+    eventBroadcaster.broadcastSupervisorDecision(decision);
   },
   onInject: (cmd) => {
     debugLog("Injecting command", cmd);
     console.error(`[CCO] Injecting command: ${cmd}`);
+    // Broadcast to WebSocket clients
+    eventBroadcaster.broadcastCommandInject(cmd);
   },
   onControllerStop: (reason) => {
     debugLog("Controller stopped", reason);
@@ -163,6 +182,8 @@ const hooksController = new HooksController({
   onError: (err) => {
     debugLog("Controller error", { message: err.message, stack: err.stack });
     console.error(`[CCO] Controller error: ${err.message}`);
+    // Broadcast to WebSocket clients
+    eventBroadcaster.broadcastError(err);
   },
 });
 
@@ -172,6 +193,9 @@ hooksController.setOnInject((cmd) => {
     ptyManager.write(cmd + "\n");
   }
 });
+
+// Set mock supervisor for testing
+hooksController.setSupervisor(createMockSupervisor({ delay: 100 }));
 
 // Register controller with server routes
 setHooksController(hooksController);
@@ -213,6 +237,9 @@ function getTerminalSize() {
   };
 }
 
+// Port file for hooks to read (since Claude Code sanitizes env vars for hooks)
+const CCO_PORT_FILE = "/tmp/cco-port";
+
 // Main function
 async function main() {
   console.log(`[CCO] Starting Claude Code Orchestrator`);
@@ -222,13 +249,21 @@ async function main() {
     console.log(`[CCO] Task: ${taskDescription}`);
   }
   console.log(`[CCO] Server: http://localhost:${port}`);
+  console.log(`[CCO] Monitor UI: http://localhost:${port}/monitor`);
   console.log(`[CCO] Session API: http://localhost:${port}/api/session`);
   console.log(`[CCO] Hooks API: http://localhost:${port}/api/hooks/*`);
   console.log("");
 
+  // Write port to file for hooks to read
+  writeFileSync(CCO_PORT_FILE, String(port));
+  console.log(`[CCO] Port file: ${CCO_PORT_FILE}`);
+
   // Start HTTP server
   const server = Bun.serve(createServer(port));
   console.log(`[CCO] Server running on port ${port}`);
+
+  // Initialize broadcaster with server reference
+  initializeBroadcaster(server);
 
   // Start session
   sessionManager.startTask(taskDescription || "interactive session");
@@ -246,6 +281,17 @@ async function main() {
     command.push(taskDescription);
   }
 
+  // Start session state broadcast interval (every 1 second)
+  const stateBroadcastInterval = setInterval(() => {
+    const sessionInfo = sessionManager.getInfo();
+    eventBroadcaster.broadcastSessionState({
+      sessionState: sessionInfo.state,
+      metadata: sessionInfo.metadata,
+      controllerState: hooksController.getState(),
+      stats: hooksController.getStats(),
+    });
+  }, 1000);
+
   // Spawn Claude Code
   try {
     await ptyManager.spawn({
@@ -258,8 +304,14 @@ async function main() {
         // Stream output to stdout (preserves ANSI colors)
         // No pattern analysis - events come via hooks
         process.stdout.write(decoder.decode(data));
+
+        // Broadcast PTY output to WebSocket clients
+        eventBroadcaster.broadcastPTYOutput(data);
       },
       onExit: (exitCode, signalCode) => {
+        // Stop the state broadcast interval
+        clearInterval(stateBroadcastInterval);
+
         // Restore stdin to normal mode
         if (process.stdin.isTTY) {
           process.stdin.setRawMode(false);
@@ -325,6 +377,7 @@ async function main() {
       ptyManager.resize(cols, rows);
     });
   } catch (error) {
+    clearInterval(stateBroadcastInterval);
     console.error("[CCO] Failed to spawn Claude Code:", error);
     sessionManager.setError(String(error));
     process.exit(1);

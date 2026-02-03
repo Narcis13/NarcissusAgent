@@ -24,6 +24,16 @@ export class PTYManager implements IPTYManager {
       throw new Error("PTY already running. Call cleanup() first.");
     }
 
+    const spawnEnv = {
+      ...process.env,
+      ...options.env,
+      TERM: "xterm-256color",
+      COLORTERM: "truecolor",
+    };
+
+    console.error("[PTY] Spawning with CCO_PORT:", spawnEnv.CCO_PORT);
+    console.error("[PTY] Command:", options.command.join(" "));
+
     this.proc = Bun.spawn(options.command, {
       terminal: {
         cols: options.cols ?? 120,
@@ -32,11 +42,7 @@ export class PTYManager implements IPTYManager {
           options.onData(data);
         },
       },
-      env: {
-        ...process.env,
-        TERM: "xterm-256color",
-        COLORTERM: "truecolor",
-      },
+      env: spawnEnv,
     });
 
     this.terminal = this.proc.terminal ?? null;

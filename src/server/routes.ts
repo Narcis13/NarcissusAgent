@@ -68,13 +68,17 @@ app.get("/api/session", (c) => {
  * Primary completion signal from the Stop hook.
  */
 app.post("/api/hooks/stop", async (c) => {
+  console.error("[CCO] >>> STOP hook received");
   if (!hooksController) {
+    console.error("[CCO] >>> Hooks controller not initialized!");
     return c.json({ error: "Hooks controller not initialized" }, 503);
   }
 
   try {
     const event = (await c.req.json()) as StopEvent;
+    console.error("[CCO] >>> Stop event:", JSON.stringify(event).slice(0, 200));
     const response = await hooksController.onStop(event);
+    console.error("[CCO] >>> Stop response:", response);
     return c.json(response);
   } catch (error) {
     console.error("[CCO] Error handling stop event:", error);
@@ -87,12 +91,15 @@ app.post("/api/hooks/stop", async (c) => {
  * Tracks tool usage and detects errors.
  */
 app.post("/api/hooks/tool", async (c) => {
+  console.error("[CCO] >>> TOOL hook received");
   if (!hooksController) {
+    console.error("[CCO] >>> Hooks controller not initialized!");
     return c.json({ error: "Hooks controller not initialized" }, 503);
   }
 
   try {
     const event = (await c.req.json()) as ToolEvent;
+    console.error("[CCO] >>> Tool event:", event.tool_name);
     const response = await hooksController.onTool(event);
     return c.json(response);
   } catch (error) {
@@ -105,12 +112,15 @@ app.post("/api/hooks/tool", async (c) => {
  * POST /api/hooks/session-start - Session begins
  */
 app.post("/api/hooks/session-start", async (c) => {
+  console.error("[CCO] >>> SESSION-START hook received");
   if (!hooksController) {
+    console.error("[CCO] >>> Hooks controller not initialized!");
     return c.json({ error: "Hooks controller not initialized" }, 503);
   }
 
   try {
     const event = (await c.req.json()) as SessionStartEvent;
+    console.error("[CCO] >>> Session-start event:", event.session_id);
     const response = await hooksController.onSessionStart(event);
     return c.json(response);
   } catch (error) {

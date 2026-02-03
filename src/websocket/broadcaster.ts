@@ -1,0 +1,377 @@
+/**
+ * WebSocket Event Broadcaster
+ *
+ * Manages WebSocket connections and broadcasts real-time events to connected
+ * clients for the monitoring UI.
+ */
+
+import type { Server, ServerWebSocket } from "bun";
+import stripAnsi from "strip-ansi";
+
+/**
+ * Patterns to filter out from PTY output - these are UI noise, not content
+ */
+const NOISE_PATTERNS = [
+  // Spinner/status lines
+  /^[✶✳✢·✻✽⏺◐◓◑◒▶◆◇○●◉◎⦿⊙⊚◈❖✦✧★☆•▸▹▷▻►◂◃◄◅⏵⏴⏶⏷⟐⟡◠◡◴◵◶◷◰◱◲◳⣾⣽⣻⢿⡿⣟⣯⣷⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s*(Working|Elucidating|Determining|Thinking|Processing)…/,
+  // Token counters and timing
+  /\(\d+s\s*·.*tokens.*esc to interrupt\)/,
+  // Box drawing lines (decorative borders)
+  /^[╭╮╰╯│─┌┐└┘├┤┬┴┼]+$/,
+  /^[╭╮╰╯][-─═]+[╭╮╰╯]$/,
+  // UI chrome
+  /^\s*\?\s+for shortcuts/,
+  /IDE disconnected/,
+  /Bypassing Permissions/,
+  // Suggestion box content
+  /^│\s*>\s*Try\s+".*"\s*│$/,
+  // Welcome banner (already shown at start)
+  /Welcome to Claude Code/,
+  /\/help for help/,
+  /\/status for your current setup/,
+  // Empty box lines
+  /^│\s*│$/,
+  // Partial ANSI codes that leaked through
+  /;\d+;\d+;\d+m/,
+  // Lines that are just whitespace
+  /^\s*$/,
+];
+
+/**
+ * Check if a line is meaningful content vs UI noise
+ */
+function isMeaningfulLine(line: string): boolean {
+  const trimmed = line.trim();
+
+  // Empty lines are not meaningful on their own
+  if (trimmed === "") return false;
+
+  // Check against noise patterns
+  for (const pattern of NOISE_PATTERNS) {
+    if (pattern.test(trimmed)) return false;
+  }
+
+  // Lines starting with ⏺ are Claude's actual responses - always keep
+  if (trimmed.startsWith("⏺")) return true;
+
+  // Lines starting with ⎿ are tool results - keep
+  if (trimmed.startsWith("⎿")) return true;
+
+  // Lines that are part of Claude's response (indented content after ⏺)
+  // These typically start with "-" or are prose
+  if (/^[-•]\s+\w/.test(trimmed)) return true;
+
+  // Keep lines that look like actual content (have words)
+  if (/[a-zA-Z]{3,}/.test(trimmed) && !NOISE_PATTERNS.some(p => p.test(trimmed))) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Filter PTY output to extract only meaningful Claude responses
+ */
+function filterPTYOutput(text: string, previousLines: string[]): { filtered: string; newLines: string[] } {
+  const lines = text.split("\n");
+  const meaningfulLines: string[] = [];
+  const updatedPreviousLines = [...previousLines];
+
+  for (const line of lines) {
+    if (isMeaningfulLine(line)) {
+      const trimmed = line.trim();
+
+      // Avoid exact duplicates
+      if (!updatedPreviousLines.includes(trimmed)) {
+        meaningfulLines.push(trimmed);
+        updatedPreviousLines.push(trimmed);
+
+        // Keep only last 50 lines for dedup
+        if (updatedPreviousLines.length > 50) {
+          updatedPreviousLines.shift();
+        }
+      }
+    }
+  }
+
+  return {
+    filtered: meaningfulLines.join("\n"),
+    newLines: updatedPreviousLines,
+  };
+}
+
+import type {
+  HooksControllerState,
+  HooksStats,
+  StopEvent,
+  ToolEvent,
+  SessionStartEvent,
+  SessionEndEvent,
+  SupervisorDecision,
+  ToolHistoryEntry,
+} from "../hooks/types";
+import type { SessionState, SessionMetadata } from "../session/types";
+
+/**
+ * WebSocket message types for the monitoring UI
+ */
+export type WSMessageType =
+  | "session_state"
+  | "pty_output"
+  | "hook_event"
+  | "supervisor_call"
+  | "supervisor_decision"
+  | "command_inject"
+  | "error"
+  | "connected";
+
+/**
+ * Base WebSocket message structure
+ */
+export interface WSMessage {
+  type: WSMessageType;
+  timestamp: string;
+  data: unknown;
+}
+
+/**
+ * Session state message data
+ */
+export interface SessionStateData {
+  sessionState: SessionState;
+  metadata: SessionMetadata | null;
+  controllerState: HooksControllerState;
+  stats: HooksStats;
+}
+
+/**
+ * PTY output message data
+ */
+export interface PTYOutputData {
+  /** Clean text output (ANSI stripped) */
+  output: string;
+  /** Raw output for terminal rendering (base64 encoded) */
+  raw?: string;
+}
+
+/**
+ * Hook event message data
+ */
+export interface HookEventData {
+  eventType: "stop" | "tool" | "session-start" | "session-end";
+  event: StopEvent | ToolEvent | SessionStartEvent | SessionEndEvent;
+}
+
+/**
+ * Supervisor call message data
+ */
+export interface SupervisorCallData {
+  toolCount: number;
+  recentTools: string[];
+}
+
+/**
+ * Supervisor decision message data
+ */
+export interface SupervisorDecisionData {
+  decision: SupervisorDecision;
+}
+
+/**
+ * Command inject message data
+ */
+export interface CommandInjectData {
+  command: string;
+}
+
+/**
+ * WebSocket data attached to each connection
+ */
+interface WSData {
+  connectedAt: Date;
+}
+
+/**
+ * EventBroadcaster manages WebSocket connections and broadcasts events
+ */
+export class EventBroadcaster {
+  private server: Server<WSData> | null = null;
+  private connections = new Set<ServerWebSocket<WSData>>();
+  private previousLines: string[] = []; // Track recent lines for spinner deduplication
+
+  /**
+   * Set the server reference for WebSocket broadcasting
+   */
+  setServer(server: Server<WSData>): void {
+    this.server = server;
+  }
+
+  /**
+   * Handle new WebSocket connection
+   */
+  onOpen(ws: ServerWebSocket<WSData>): void {
+    this.connections.add(ws);
+    console.log(`[WS] Client connected (${this.connections.size} total)`);
+
+    // Send connected confirmation
+    this.sendTo(ws, {
+      type: "connected",
+      timestamp: new Date().toISOString(),
+      data: { message: "Connected to CCO monitor" },
+    });
+  }
+
+  /**
+   * Handle WebSocket message (ping/pong or future commands)
+   */
+  onMessage(ws: ServerWebSocket<WSData>, message: string | Buffer): void {
+    // Currently just echo for keepalive
+    if (message === "ping") {
+      ws.send("pong");
+    }
+  }
+
+  /**
+   * Handle WebSocket close
+   */
+  onClose(ws: ServerWebSocket<WSData>): void {
+    this.connections.delete(ws);
+    console.log(`[WS] Client disconnected (${this.connections.size} total)`);
+  }
+
+  /**
+   * Get number of connected clients
+   */
+  getConnectionCount(): number {
+    return this.connections.size;
+  }
+
+  /**
+   * Broadcast a message to all connected clients
+   */
+  broadcast(message: WSMessage): void {
+    const json = JSON.stringify(message);
+    for (const ws of this.connections) {
+      try {
+        ws.send(json);
+      } catch {
+        // Remove dead connections
+        this.connections.delete(ws);
+      }
+    }
+  }
+
+  /**
+   * Send a message to a specific client
+   */
+  private sendTo(ws: ServerWebSocket<WSData>, message: WSMessage): void {
+    try {
+      ws.send(JSON.stringify(message));
+    } catch {
+      this.connections.delete(ws);
+    }
+  }
+
+  /**
+   * Broadcast session state update
+   */
+  broadcastSessionState(data: SessionStateData): void {
+    this.broadcast({
+      type: "session_state",
+      timestamp: new Date().toISOString(),
+      data,
+    });
+  }
+
+  /**
+   * Broadcast PTY output (ANSI stripped and spinner-deduplicated for orchestrator readability)
+   */
+  broadcastPTYOutput(output: Uint8Array): void {
+    const decoder = new TextDecoder();
+    const rawText = decoder.decode(output);
+    // Strip ANSI escape codes for clean text
+    const cleanText = stripAnsi(rawText);
+
+    // Filter out spinner frame repetition
+    const { filtered, newLines } = filterPTYOutput(cleanText, this.previousLines);
+    this.previousLines = newLines;
+
+    // Only broadcast if there's meaningful content
+    if (filtered.trim() === "") {
+      return;
+    }
+
+    this.broadcast({
+      type: "pty_output",
+      timestamp: new Date().toISOString(),
+      data: {
+        output: filtered,
+        raw: Buffer.from(output).toString("base64"),
+      } satisfies PTYOutputData,
+    });
+  }
+
+  /**
+   * Broadcast hook event
+   */
+  broadcastHookEvent(
+    eventType: HookEventData["eventType"],
+    event: HookEventData["event"]
+  ): void {
+    this.broadcast({
+      type: "hook_event",
+      timestamp: new Date().toISOString(),
+      data: { eventType, event } satisfies HookEventData,
+    });
+  }
+
+  /**
+   * Broadcast supervisor call
+   */
+  broadcastSupervisorCall(toolHistory: ToolHistoryEntry[]): void {
+    this.broadcast({
+      type: "supervisor_call",
+      timestamp: new Date().toISOString(),
+      data: {
+        toolCount: toolHistory.length,
+        recentTools: toolHistory.slice(-3).map((t) => t.toolName),
+      } satisfies SupervisorCallData,
+    });
+  }
+
+  /**
+   * Broadcast supervisor decision
+   */
+  broadcastSupervisorDecision(decision: SupervisorDecision): void {
+    this.broadcast({
+      type: "supervisor_decision",
+      timestamp: new Date().toISOString(),
+      data: { decision } satisfies SupervisorDecisionData,
+    });
+  }
+
+  /**
+   * Broadcast command injection
+   */
+  broadcastCommandInject(command: string): void {
+    this.broadcast({
+      type: "command_inject",
+      timestamp: new Date().toISOString(),
+      data: { command } satisfies CommandInjectData,
+    });
+  }
+
+  /**
+   * Broadcast error event
+   */
+  broadcastError(error: Error): void {
+    this.broadcast({
+      type: "error",
+      timestamp: new Date().toISOString(),
+      data: { message: error.message, stack: error.stack },
+    });
+  }
+}
+
+// Singleton instance
+export const eventBroadcaster = new EventBroadcaster();
