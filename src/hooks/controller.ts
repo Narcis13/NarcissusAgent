@@ -204,6 +204,17 @@ export class HooksController {
         break;
 
       case 'continue':
+        // Inject /clear to close the loop — clears context and keeps Claude going
+        this.state = 'injecting';
+        this.stats.commandsInjected++;
+        if (this.onInjectFn) {
+          this.onInjectFn('/clear');
+        }
+        this.eventHandler.onInject?.('/clear');
+        this.toolHistory = [];
+        this.state = 'monitoring';
+        break;
+
       case 'clear':
       case 'compact':
         // Return to monitoring

@@ -164,6 +164,8 @@ export interface SessionStateData {
   metadata: SessionMetadata | null;
   controllerState: HooksControllerState;
   stats: HooksStats;
+  decoupled?: boolean;
+  claudeRunning?: boolean;
 }
 
 /**

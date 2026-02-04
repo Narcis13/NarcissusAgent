@@ -19,11 +19,29 @@ import type {
 // Hooks controller reference - set via setHooksController
 let hooksController: HooksController | null = null;
 
+// Decouple mode state
+let isDecoupled = false;
+let claudeLauncher: ((task?: string) => Promise<void>) | null = null;
+
 /**
  * Set the hooks controller for API endpoints
  */
 export function setHooksController(controller: HooksController): void {
   hooksController = controller;
+}
+
+/**
+ * Set the Claude launcher function (used in decouple mode)
+ */
+export function setClaudeLauncher(launcher: (task?: string) => Promise<void>): void {
+  claudeLauncher = launcher;
+}
+
+/**
+ * Set whether running in decoupled mode
+ */
+export function setDecoupledMode(decoupled: boolean): void {
+  isDecoupled = decoupled;
 }
 
 const app = new Hono();
@@ -59,6 +77,30 @@ app.get("/api/session", (c) => {
         }
       : null,
   });
+});
+
+// ============ Claude Launch (Decouple Mode) ============
+
+/**
+ * POST /api/claude/launch - Launch Claude subprocess (decouple mode only)
+ * Body: { task?: string }
+ */
+app.post("/api/claude/launch", async (c) => {
+  if (!isDecoupled) {
+    return c.json({ error: "Not in decoupled mode" }, 400);
+  }
+  if (!claudeLauncher) {
+    return c.json({ error: "Launcher not initialized" }, 503);
+  }
+
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const task = (body as { task?: string }).task || undefined;
+    await claudeLauncher(task);
+    return c.json({ ok: true, task: task || "interactive session" });
+  } catch (error) {
+    return c.json({ error: String(error) }, 409);
+  }
 });
 
 // ============ Hook Endpoints ============

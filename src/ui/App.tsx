@@ -20,6 +20,8 @@ interface SessionStateData {
     commandsInjected: number;
     errorsDetected: number;
   };
+  decoupled?: boolean;
+  claudeRunning?: boolean;
 }
 
 interface HookEventData {
@@ -465,22 +467,88 @@ function EventLogPanel({ events }: { events: EventLogEntry[] }) {
   );
 }
 
+// Launch Panel Component (decouple mode)
+function LaunchPanel({ onLaunched }: { onLaunched: () => void }) {
+  const [task, setTask] = useState("");
+  const [launching, setLaunching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleLaunch = async () => {
+    setLaunching(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/claude/launch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task: task || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      onLaunched();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setLaunching(false);
+    }
+  };
+
+  return (
+    <div className="panel">
+      <div className="panel-header">Launch Claude</div>
+      <div className="panel-content">
+        <div className="launch-panel">
+          <input
+            type="text"
+            className="launch-input"
+            placeholder="Task description (optional)"
+            value={task}
+            onChange={(e) => setTask(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !launching) handleLaunch();
+            }}
+            disabled={launching}
+          />
+          <button
+            className="launch-button"
+            onClick={handleLaunch}
+            disabled={launching}
+          >
+            {launching ? "Launching..." : "Launch Claude"}
+          </button>
+          {error && <div className="launch-error">{error}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Main App Component
 function App() {
   const wsUrl = `ws://${window.location.host}/ws`;
   const { isConnected, sessionState, terminalOutput, events } =
     useWebSocket(wsUrl);
+  const [launched, setLaunched] = useState(false);
+
+  const isDecoupled = sessionState?.decoupled ?? false;
+  const claudeRunning = sessionState?.claudeRunning ?? false;
+  const showLaunchPanel = isDecoupled && !claudeRunning && !launched;
 
   return (
     <div className="app-container">
       <header className="header">
         <h1>CCO Monitor</h1>
         <div className="connection-indicator">
+          {isDecoupled && (
+            <span className="mode-badge">DECOUPLED</span>
+          )}
           <span className={`connection-dot ${isConnected ? "connected" : ""}`} />
           <span>{isConnected ? "Connected" : "Disconnected"}</span>
         </div>
       </header>
 
+      {showLaunchPanel && <LaunchPanel onLaunched={() => setLaunched(true)} />}
       <SessionPanel data={sessionState} />
       <TerminalPanel output={terminalOutput} />
       <EventLogPanel events={events} />

@@ -29,17 +29,6 @@
           }
         ]
       }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "curl -s -X POST http://localhost:13013/api/hooks/tool -H 'Content-Type: application/json' -d @- || true"
-          }
-        ]
-      }
     ]
   }
 }

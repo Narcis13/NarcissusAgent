@@ -11,7 +11,7 @@ import { parseArgs } from "util";
 import { appendFileSync, writeFileSync } from "node:fs";
 import { PTYManager } from "./pty";
 import { sessionManager } from "./session";
-import { createServer, setHooksController, initializeBroadcaster } from "./server";
+import { createServer, setHooksController, setClaudeLauncher, setDecoupledMode, initializeBroadcaster } from "./server";
 import { HooksController } from "./hooks";
 import { eventBroadcaster } from "./websocket";
 import { createMockSupervisor } from "./supervisor";
@@ -21,6 +21,7 @@ const { values, positionals } = parseArgs({
   args: Bun.argv.slice(2),
   options: {
     port: { type: "string", default: "13013" },
+    decouple: { type: "boolean", default: false },
     help: { type: "boolean", short: "h" },
     verbose: { type: "boolean", short: "v", default: false },
     debug: { type: "boolean", short: "d", default: false },
@@ -68,6 +69,7 @@ Usage: cco [task description] [options]
 
 Options:
   --port <number>       Server port (default: 13013)
+  --decouple            Start server without launching Claude (launch from UI)
   -v, --verbose         Show hook events as they arrive
   -d, --debug           Show ALL debug output (hooks, decisions)
   --debug-file <path>   Write debug output to file
@@ -81,6 +83,7 @@ Examples:
   cco                                                  # Start interactive mode
   cco "build a hello world app"
   cco "fix the bug in auth" --port 4000
+  cco --decouple                                       # Server only, launch from UI
   cco "test task" --debug                              # Debug to stderr
   cco "test task" --debug --debug-file debug.log      # Debug to both
   cco "test task" --debug --debug-file debug.log --debug-file-only  # File only
@@ -91,13 +94,14 @@ Examples:
 const taskDescription = positionals.join(" ") || "";
 const port = parseInt(values.port ?? "13013", 10);
 const verbose = values.verbose ?? false;
+const decoupled = values.decouple ?? false;
 const isInteractive = taskDescription === "";
 
 // Log startup info in debug mode
 if (debugMode) {
   debugLog("=== CCO DEBUG MODE ENABLED ===");
   debugLog("Task", taskDescription || "(interactive mode)");
-  debugLog("Config", { port, verbose, debugMode, debugFile, isInteractive });
+  debugLog("Config", { port, verbose, debugMode, debugFile, isInteractive, decoupled });
 }
 
 // Create PTY manager
@@ -163,7 +167,13 @@ const hooksController = new HooksController({
 // Set up inject callback to write to PTY
 hooksController.setOnInject((cmd) => {
   if (ptyManager.isRunning) {
-    ptyManager.write(cmd + "\n");
+    ptyManager.write(cmd + "\r");
+    // Second Enter after short delay to confirm autocomplete selection and execute
+    setTimeout(() => {
+      if (ptyManager.isRunning) {
+        ptyManager.write("\r");
+      }
+    }, 150);
   }
 });
 
@@ -206,6 +216,106 @@ function getTerminalSize() {
   };
 }
 
+// Build a clean env for spawned Claude Code process.
+// Remove CLAUDECODE/CLAUDE_CODE_* vars so the child doesn't think
+// it's running nested inside another Claude Code session.
+function buildChildEnv(): Record<string, string | undefined> {
+  const childEnv: Record<string, string | undefined> = { ...process.env };
+  for (const key of Object.keys(childEnv)) {
+    if (key === "CLAUDECODE" || key.startsWith("CLAUDE_CODE_")) {
+      delete childEnv[key];
+    }
+  }
+  return childEnv;
+}
+
+// State broadcast interval reference
+let stateBroadcastInterval: ReturnType<typeof setInterval> | null = null;
+
+function startStateBroadcast() {
+  if (stateBroadcastInterval) return;
+  stateBroadcastInterval = setInterval(() => {
+    const sessionInfo = sessionManager.getInfo();
+    eventBroadcaster.broadcastSessionState({
+      sessionState: sessionInfo.state,
+      metadata: sessionInfo.metadata,
+      controllerState: hooksController.getState(),
+      stats: hooksController.getStats(),
+      decoupled,
+      claudeRunning: ptyManager.isRunning,
+    });
+  }, 1000);
+}
+
+/**
+ * Spawn Claude Code as a PTY subprocess.
+ * Can be called at startup (normal mode) or on demand (decouple mode).
+ */
+async function spawnClaude(task?: string): Promise<void> {
+  if (ptyManager.isRunning) {
+    throw new Error("Claude is already running");
+  }
+
+  const { cols, rows } = getTerminalSize();
+  const claudeBin = `${process.env.HOME}/.claude/local/claude`;
+  const command = [claudeBin, "--dangerously-skip-permissions"];
+  if (task) {
+    command.push(task);
+  }
+
+  sessionManager.startTask(task || "interactive session");
+  startStateBroadcast();
+
+  await ptyManager.spawn({
+    command,
+    cwd: process.cwd(),
+    env: buildChildEnv(),
+    onData: (data) => {
+      process.stdout.write(decoder.decode(data));
+      eventBroadcaster.broadcastPTYOutput(data);
+    },
+    onExit: (exitCode, signalCode) => {
+      if (!decoupled && process.stdin.isTTY) {
+        process.stdin.setRawMode(false);
+      }
+
+      if (hooksController.isRunning()) {
+        hooksController.stop(`PTY exited with code ${exitCode}`);
+      }
+
+      sessionManager.setIdle();
+      debugLog("Claude Code exited", { exitCode, signalCode });
+
+      if (!decoupled) {
+        if (stateBroadcastInterval) clearInterval(stateBroadcastInterval);
+        process.exit(exitCode ?? 0);
+      }
+    },
+    cols,
+    rows,
+  });
+
+  hooksController.start(task || "interactive session");
+  debugLog("Hooks controller started");
+
+  // Forward stdin to PTY only in non-decoupled mode
+  if (!decoupled && process.stdin.isTTY) {
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.on("data", (data: Buffer) => {
+      if (ptyManager.isRunning) {
+        ptyManager.write(data.toString());
+      }
+    });
+  }
+
+  // Handle terminal resize (SIGWINCH)
+  process.stdout.on("resize", () => {
+    const { cols, rows } = getTerminalSize();
+    ptyManager.resize(cols, rows);
+  });
+}
+
 // Main function
 async function main() {
   // Start HTTP server
@@ -215,98 +325,23 @@ async function main() {
   // Initialize broadcaster with server reference
   initializeBroadcaster(server);
 
-  // Start session
-  sessionManager.startTask(taskDescription || "interactive session");
+  // Register decouple mode and launcher with routes
+  setDecoupledMode(decoupled);
+  setClaudeLauncher(spawnClaude);
 
-  // Get initial terminal size
-  const { cols, rows } = getTerminalSize();
-
-  // Build command: claude --dangerously-skip-permissions [task]
-  // Use the official CLI installer path directly, not /usr/local/bin/claude
-  // which may be a different (older) installation that doesn't support hooks.
-  // The shell alias `claude` resolves to this path, but Bun.spawn bypasses aliases.
-  const claudeBin = `${process.env.HOME}/.claude/local/claude`;
-  const command = [claudeBin, "--dangerously-skip-permissions"];
-  if (taskDescription) {
-    command.push(taskDescription);
+  if (decoupled) {
+    // Decouple mode: server only, Claude launched from UI
+    console.log(`[CCO] Decoupled mode - server running at http://localhost:${port}/monitor`);
+    console.log(`[CCO] Launch Claude from the monitoring UI`);
+    startStateBroadcast();
+    return; // Keep process alive via Bun.serve()
   }
 
-  // Build a clean env for the spawned Claude Code process.
-  // Remove CLAUDECODE/CLAUDE_CODE_* vars so the child doesn't think
-  // it's running nested inside another Claude Code session.
-  const childEnv: Record<string, string | undefined> = { ...process.env };
-  for (const key of Object.keys(childEnv)) {
-    if (key === "CLAUDECODE" || key.startsWith("CLAUDE_CODE_")) {
-      delete childEnv[key];
-    }
-  }
-
-  // Start session state broadcast interval (every 1 second)
-  const stateBroadcastInterval = setInterval(() => {
-    const sessionInfo = sessionManager.getInfo();
-    eventBroadcaster.broadcastSessionState({
-      sessionState: sessionInfo.state,
-      metadata: sessionInfo.metadata,
-      controllerState: hooksController.getState(),
-      stats: hooksController.getStats(),
-    });
-  }, 1000);
-
-  // Spawn Claude Code
+  // Normal mode: spawn Claude immediately
   try {
-    await ptyManager.spawn({
-      command,
-      cwd: process.cwd(),
-      env: childEnv,
-      onData: (data) => {
-        // Stream output to stdout (preserves ANSI colors)
-        // No pattern analysis - events come via hooks
-        process.stdout.write(decoder.decode(data));
-
-        // Broadcast PTY output to WebSocket clients
-        eventBroadcaster.broadcastPTYOutput(data);
-      },
-      onExit: (exitCode, signalCode) => {
-        clearInterval(stateBroadcastInterval);
-
-        if (process.stdin.isTTY) {
-          process.stdin.setRawMode(false);
-        }
-
-        if (hooksController.isRunning()) {
-          hooksController.stop(`PTY exited with code ${exitCode}`);
-        }
-
-        sessionManager.setIdle();
-        debugLog("Claude Code exited", { exitCode, signalCode });
-
-        process.exit(exitCode ?? 0);
-      },
-      cols,
-      rows,
-    });
-
-    hooksController.start(taskDescription || "interactive session");
-    debugLog("Hooks controller started");
-
-    // Forward stdin to PTY for interactive mode
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode(true);
-      process.stdin.resume();
-      process.stdin.on("data", (data: Buffer) => {
-        if (ptyManager.isRunning) {
-          ptyManager.write(data.toString());
-        }
-      });
-    }
-
-    // Handle terminal resize (SIGWINCH)
-    process.stdout.on("resize", () => {
-      const { cols, rows } = getTerminalSize();
-      ptyManager.resize(cols, rows);
-    });
+    await spawnClaude(taskDescription || undefined);
   } catch (error) {
-    clearInterval(stateBroadcastInterval);
+    if (stateBroadcastInterval) clearInterval(stateBroadcastInterval);
     debugLog("Failed to spawn Claude Code", { error: String(error) });
     sessionManager.setError(String(error));
     process.exit(1);

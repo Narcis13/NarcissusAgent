@@ -397,6 +397,74 @@ body {
   border-left: 2px solid #374151;
 }
 
+/* Mode badge */
+.mode-badge {
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  background-color: rgba(99, 102, 241, 0.2);
+  color: #6366f1;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Launch panel (decouple mode) */
+.panel:has(.launch-panel) {
+  grid-column: 1 / -1;
+}
+
+.launch-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.launch-input {
+  background-color: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 0.625rem 0.75rem;
+  color: var(--terminal-fg);
+  font-family: inherit;
+  font-size: 0.85rem;
+  outline: none;
+}
+
+.launch-input:focus {
+  border-color: #6366f1;
+}
+
+.launch-input:disabled {
+  opacity: 0.5;
+}
+
+.launch-button {
+  background-color: #6366f1;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 0.625rem 1rem;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.launch-button:hover:not(:disabled) {
+  background-color: #4f46e5;
+}
+
+.launch-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.launch-error {
+  color: var(--status-error);
+  font-size: 0.8rem;
+}
+
 /* Empty state */
 .empty-state {
   color: #6b7280;

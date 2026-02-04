@@ -5,7 +5,7 @@
  */
 
 import type { Server, ServerWebSocket } from "bun";
-import { app, setHooksController } from "./routes";
+import { app, setHooksController, setClaudeLauncher, setDecoupledMode } from "./routes";
 import { eventBroadcaster } from "../websocket";
 import monitorUI from "../ui/index.html";
 
@@ -63,4 +63,4 @@ export function initializeBroadcaster(server: Server<WSData>): void {
   eventBroadcaster.setServer(server);
 }
 
-export { app, setHooksController };
+export { app, setHooksController, setClaudeLauncher, setDecoupledMode };
