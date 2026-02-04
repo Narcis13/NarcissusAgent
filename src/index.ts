@@ -14,7 +14,7 @@ import { sessionManager } from "./session";
 import { createServer, setHooksController, setClaudeLauncher, setDecoupledMode, initializeBroadcaster } from "./server";
 import { HooksController } from "./hooks";
 import { eventBroadcaster } from "./websocket";
-import { createMockSupervisor } from "./supervisor";
+import { createClaudeSupervisor, createMockSupervisor } from "./supervisor";
 
 // Parse CLI arguments
 const { values, positionals } = parseArgs({
@@ -27,6 +27,8 @@ const { values, positionals } = parseArgs({
     debug: { type: "boolean", short: "d", default: false },
     "debug-file": { type: "string" },
     "debug-file-only": { type: "boolean", default: false },
+    "mock-supervisor": { type: "boolean", default: false },
+    "max-iterations": { type: "string", default: "50" },
   },
   strict: true,
   allowPositionals: true,
@@ -74,6 +76,8 @@ Options:
   -d, --debug           Show ALL debug output (hooks, decisions)
   --debug-file <path>   Write debug output to file
   --debug-file-only     Only write to file, not stderr (use with --debug-file)
+  --mock-supervisor     Use mock supervisor (for testing)
+  --max-iterations <n>  Maximum supervisor iterations (default: 50)
   -h, --help            Show this help message
 
 Monitor UI:
@@ -177,8 +181,17 @@ hooksController.setOnInject((cmd) => {
   }
 });
 
-// Set mock supervisor for testing
-hooksController.setSupervisor(createMockSupervisor({ delay: 100 }));
+// Set up supervisor (production: Claude, testing: mock)
+const useMockSupervisor = values["mock-supervisor"] ?? false;
+const maxIterations = parseInt(values["max-iterations"] ?? "50", 10);
+
+if (useMockSupervisor) {
+  hooksController.setSupervisor(createMockSupervisor({ delay: 100 }));
+  debugLog("Using mock supervisor");
+} else {
+  hooksController.setSupervisor(createClaudeSupervisor({ maxIterations }));
+  debugLog("Using Claude supervisor", { maxIterations });
+}
 
 // Register controller with server routes
 setHooksController(hooksController);
