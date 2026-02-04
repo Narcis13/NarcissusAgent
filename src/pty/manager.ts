@@ -31,10 +31,8 @@ export class PTYManager implements IPTYManager {
       COLORTERM: "truecolor",
     };
 
-    console.error("[PTY] Spawning with CCO_PORT:", spawnEnv.CCO_PORT);
-    console.error("[PTY] Command:", options.command.join(" "));
-
     this.proc = Bun.spawn(options.command, {
+      cwd: options.cwd,
       terminal: {
         cols: options.cols ?? 120,
         rows: options.rows ?? 40,

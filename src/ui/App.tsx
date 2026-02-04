@@ -52,6 +52,12 @@ interface EventLogEntry {
   type: "hook" | "supervisor" | "inject" | "error";
   title: string;
   detail: string;
+  transcriptPath?: string;
+}
+
+// Transcript line from JSONL
+interface TranscriptLine {
+  [key: string]: unknown;
 }
 
 // Custom hook for WebSocket connection
@@ -67,7 +73,7 @@ function useWebSocket(url: string) {
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const addEvent = useCallback(
-    (type: EventLogEntry["type"], title: string, detail: string) => {
+    (type: EventLogEntry["type"], title: string, detail: string, transcriptPath?: string) => {
       setEvents((prev) => {
         const newEvent: EventLogEntry = {
           id: eventIdRef.current++,
@@ -75,6 +81,7 @@ function useWebSocket(url: string) {
           type,
           title,
           detail,
+          transcriptPath,
         };
         // Keep last 50 events
         return [newEvent, ...prev].slice(0, 50);
@@ -154,7 +161,10 @@ function useWebSocket(url: string) {
                   ? `Session: ${String(evt.session_id).slice(0, 8)}...`
                   : "";
             }
-            addEvent("hook", `Hook: ${eventType}`, detail);
+            const transcriptPath = eventType === "stop" && evt.transcript_path
+              ? String(evt.transcript_path)
+              : undefined;
+            addEvent("hook", `Hook: ${eventType}`, detail, transcriptPath);
             break;
           }
 
@@ -342,8 +352,81 @@ function TerminalPanel({ output }: { output: string }) {
   );
 }
 
+// Transcript Modal Component
+function TranscriptModal({
+  path,
+  onClose,
+}: {
+  path: string;
+  onClose: () => void;
+}) {
+  const [lines, setLines] = useState<TranscriptLine[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchTranscript = async () => {
+      try {
+        const res = await fetch(
+          `/api/transcript?path=${encodeURIComponent(path)}`
+        );
+        if (!res.ok) {
+          const body = await res.json();
+          throw new Error(body.error || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        setLines(data.lines);
+      } catch (err) {
+        setError(String(err));
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchTranscript();
+  }, [path]);
+
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const filename = path.split("/").pop() || path;
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <span className="modal-title">{filename}</span>
+          <button className="modal-close" onClick={onClose}>
+            &times;
+          </button>
+        </div>
+        <div className="modal-body">
+          {loading && <div className="empty-state">Loading transcript...</div>}
+          {error && <div className="modal-error">{error}</div>}
+          {!loading && !error && (
+            <div className="transcript-lines">
+              {lines.map((line, i) => (
+                <pre key={i} className="transcript-line">
+                  {JSON.stringify(line, null, 2)}
+                </pre>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Event Log Panel Component
 function EventLogPanel({ events }: { events: EventLogEntry[] }) {
+  const [transcriptPath, setTranscriptPath] = useState<string | null>(null);
+
   return (
     <div className="panel">
       <div className="panel-header">Event Log</div>
@@ -353,7 +436,15 @@ function EventLogPanel({ events }: { events: EventLogEntry[] }) {
         ) : (
           <div className="event-log">
             {events.map((event) => (
-              <div key={event.id} className={`event-item ${event.type}`}>
+              <div
+                key={event.id}
+                className={`event-item ${event.type}${event.transcriptPath ? " clickable" : ""}`}
+                onClick={
+                  event.transcriptPath
+                    ? () => setTranscriptPath(event.transcriptPath!)
+                    : undefined
+                }
+              >
                 <div className="event-time">{formatTime(event.timestamp)}</div>
                 <div className="event-type">{event.title}</div>
                 {event.detail && (
@@ -364,6 +455,12 @@ function EventLogPanel({ events }: { events: EventLogEntry[] }) {
           </div>
         )}
       </div>
+      {transcriptPath && (
+        <TranscriptModal
+          path={transcriptPath}
+          onClose={() => setTranscriptPath(null)}
+        />
+      )}
     </div>
   );
 }

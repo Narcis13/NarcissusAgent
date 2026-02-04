@@ -1,0 +1,45 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST http://localhost:13013/api/hooks/session-start -H 'Content-Type: application/json' -d @- || true"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST http://localhost:13013/api/hooks/session-end -H 'Content-Type: application/json' -d @- || true"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST http://localhost:13013/api/hooks/stop -H 'Content-Type: application/json' -d @- || true"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST http://localhost:13013/api/hooks/tool -H 'Content-Type: application/json' -d @- || true"
+          }
+        ]
+      }
+    ]
+  }
+}

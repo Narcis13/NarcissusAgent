@@ -68,20 +68,15 @@ app.get("/api/session", (c) => {
  * Primary completion signal from the Stop hook.
  */
 app.post("/api/hooks/stop", async (c) => {
-  console.error("[CCO] >>> STOP hook received");
   if (!hooksController) {
-    console.error("[CCO] >>> Hooks controller not initialized!");
     return c.json({ error: "Hooks controller not initialized" }, 503);
   }
 
   try {
     const event = (await c.req.json()) as StopEvent;
-    console.error("[CCO] >>> Stop event:", JSON.stringify(event).slice(0, 200));
     const response = await hooksController.onStop(event);
-    console.error("[CCO] >>> Stop response:", response);
     return c.json(response);
   } catch (error) {
-    console.error("[CCO] Error handling stop event:", error);
     return c.json({ continue: true, error: String(error) });
   }
 });
@@ -91,19 +86,15 @@ app.post("/api/hooks/stop", async (c) => {
  * Tracks tool usage and detects errors.
  */
 app.post("/api/hooks/tool", async (c) => {
-  console.error("[CCO] >>> TOOL hook received");
   if (!hooksController) {
-    console.error("[CCO] >>> Hooks controller not initialized!");
     return c.json({ error: "Hooks controller not initialized" }, 503);
   }
 
   try {
     const event = (await c.req.json()) as ToolEvent;
-    console.error("[CCO] >>> Tool event:", event.tool_name);
     const response = await hooksController.onTool(event);
     return c.json(response);
   } catch (error) {
-    console.error("[CCO] Error handling tool event:", error);
     return c.json({ continue: true, error: String(error) });
   }
 });
@@ -112,19 +103,15 @@ app.post("/api/hooks/tool", async (c) => {
  * POST /api/hooks/session-start - Session begins
  */
 app.post("/api/hooks/session-start", async (c) => {
-  console.error("[CCO] >>> SESSION-START hook received");
   if (!hooksController) {
-    console.error("[CCO] >>> Hooks controller not initialized!");
     return c.json({ error: "Hooks controller not initialized" }, 503);
   }
 
   try {
     const event = (await c.req.json()) as SessionStartEvent;
-    console.error("[CCO] >>> Session-start event:", event.session_id);
     const response = await hooksController.onSessionStart(event);
     return c.json(response);
   } catch (error) {
-    console.error("[CCO] Error handling session-start event:", error);
     return c.json({ continue: true, error: String(error) });
   }
 });
@@ -142,7 +129,6 @@ app.post("/api/hooks/session-end", async (c) => {
     const response = await hooksController.onSessionEnd(event);
     return c.json(response);
   } catch (error) {
-    console.error("[CCO] Error handling session-end event:", error);
     return c.json({ continue: true, error: String(error) });
   }
 });
@@ -159,6 +145,46 @@ app.get("/api/hooks/tools", (c) => {
     tools: hooksController.getToolHistory(),
     count: hooksController.getToolHistory().length,
   });
+});
+
+/**
+ * GET /api/transcript - Read a transcript JSONL file
+ */
+app.get("/api/transcript", async (c) => {
+  const path = c.req.query("path");
+  if (!path) {
+    return c.json({ error: "Missing path parameter" }, 400);
+  }
+
+  // Only allow .jsonl files
+  if (!path.endsWith(".jsonl")) {
+    return c.json({ error: "Invalid file type" }, 400);
+  }
+
+  try {
+    const file = Bun.file(path);
+    const exists = await file.exists();
+    if (!exists) {
+      return c.json({ error: "Transcript file not found" }, 404);
+    }
+
+    const text = await file.text();
+    const lines = text
+      .trim()
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return { raw: line };
+        }
+      });
+
+    return c.json({ lines });
+  } catch (error) {
+    return c.json({ error: String(error) }, 500);
+  }
 });
 
 /**

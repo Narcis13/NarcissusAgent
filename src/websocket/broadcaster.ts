@@ -9,32 +9,64 @@ import type { Server, ServerWebSocket } from "bun";
 import stripAnsi from "strip-ansi";
 
 /**
+ * Strip all terminal control sequences beyond what strip-ansi handles.
+ * This includes OSC sequences, cursor movement, screen clearing, etc.
+ */
+function stripAllControlSequences(text: string): string {
+  let result = stripAnsi(text);
+  // OSC sequences: ESC ] ... (ST|BEL)
+  result = result.replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "");
+  // Any remaining ESC sequences
+  result = result.replace(/\x1b[^a-zA-Z]*[a-zA-Z]/g, "");
+  // Raw control characters (keep \n \r \t)
+  result = result.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+  // Carriage returns (terminal overwrites)
+  result = result.replace(/\r/g, "");
+  // Claude Code thinking tags
+  result = result.replace(/\(thinking\)/g, "");
+  // Repeated dots/ellipsis from spinners
+  result = result.replace(/[.…]{4,}/g, "…");
+  return result;
+}
+
+/**
  * Patterns to filter out from PTY output - these are UI noise, not content
  */
 const NOISE_PATTERNS = [
-  // Spinner/status lines
-  /^[✶✳✢·✻✽⏺◐◓◑◒▶◆◇○●◉◎⦿⊙⊚◈❖✦✧★☆•▸▹▷▻►◂◃◄◅⏵⏴⏶⏷⟐⟡◠◡◴◵◶◷◰◱◲◳⣾⣽⣻⢿⡿⣟⣯⣷⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s*(Working|Elucidating|Determining|Thinking|Processing)…/,
+  // Spinner/status lines (various unicode spinners)
+  /^[✶✳✢·✻✽⏺◐◓◑◒▶◆◇○●◉◎⦿⊙⊚◈❖✦✧★☆•▸▹▷▻►◂◃◄◅⏵⏴⏶⏷⟐⟡◠◡◴◵◶◷◰◱◲◳⣾⣽⣻⢿⡿⣟⣯⣷⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s*/,
+  // Thinking/pondering status lines
+  /^(Thinking|Pontificating|Elucidating|Determining|Processing|Working|Reasoning|Analyzing|Considering|Reflecting|Deliberating)…?\s*$/,
+  // Thinking tag fragments
+  /^\(thinking\)$/,
   // Token counters and timing
-  /\(\d+s\s*·.*tokens.*esc to interrupt\)/,
+  /\d+s\s*·.*tokens/,
+  /esc to interrupt/,
   // Box drawing lines (decorative borders)
-  /^[╭╮╰╯│─┌┐└┘├┤┬┴┼]+$/,
+  /^[╭╮╰╯│─┌┐└┘├┤┬┴┼═╔╗╚╝╠╣╦╩╬]+$/,
   /^[╭╮╰╯][-─═]+[╭╮╰╯]$/,
   // UI chrome
   /^\s*\?\s+for shortcuts/,
   /IDE disconnected/,
   /Bypassing Permissions/,
+  /bypass permissions on/,
+  /shift\+tab to cycle/,
+  /ctrl\+o to expand/,
   // Suggestion box content
   /^│\s*>\s*Try\s+".*"\s*│$/,
-  // Welcome banner (already shown at start)
+  // Welcome banner
   /Welcome to Claude Code/,
   /\/help for help/,
   /\/status for your current setup/,
+  /\/getting-started-for-more/,
   // Empty box lines
   /^│\s*│$/,
-  // Partial ANSI codes that leaked through
-  /;\d+;\d+;\d+m/,
   // Lines that are just whitespace
   /^\s*$/,
+  // Version/model info noise
+  /^Claude \d+\.\d+\s*\|/,
+  /switched from npm to native installer/,
+  /Run.*claude.*install/,
 ];
 
 /**
@@ -42,29 +74,23 @@ const NOISE_PATTERNS = [
  */
 function isMeaningfulLine(line: string): boolean {
   const trimmed = line.trim();
-
-  // Empty lines are not meaningful on their own
   if (trimmed === "") return false;
 
-  // Check against noise patterns
   for (const pattern of NOISE_PATTERNS) {
     if (pattern.test(trimmed)) return false;
   }
 
-  // Lines starting with ⏺ are Claude's actual responses - always keep
+  // Lines starting with ⏺ are Claude's actual responses
   if (trimmed.startsWith("⏺")) return true;
 
-  // Lines starting with ⎿ are tool results - keep
+  // Lines starting with ⎿ are tool results
   if (trimmed.startsWith("⎿")) return true;
 
-  // Lines that are part of Claude's response (indented content after ⏺)
-  // These typically start with "-" or are prose
+  // Bullet points / list items
   if (/^[-•]\s+\w/.test(trimmed)) return true;
 
-  // Keep lines that look like actual content (have words)
-  if (/[a-zA-Z]{3,}/.test(trimmed) && !NOISE_PATTERNS.some(p => p.test(trimmed))) {
-    return true;
-  }
+  // Keep lines that have actual word content
+  if (/[a-zA-Z]{3,}/.test(trimmed)) return true;
 
   return false;
 }
@@ -80,13 +106,9 @@ function filterPTYOutput(text: string, previousLines: string[]): { filtered: str
   for (const line of lines) {
     if (isMeaningfulLine(line)) {
       const trimmed = line.trim();
-
-      // Avoid exact duplicates
       if (!updatedPreviousLines.includes(trimmed)) {
         meaningfulLines.push(trimmed);
         updatedPreviousLines.push(trimmed);
-
-        // Keep only last 50 lines for dedup
         if (updatedPreviousLines.length > 50) {
           updatedPreviousLines.shift();
         }
@@ -211,7 +233,6 @@ export class EventBroadcaster {
    */
   onOpen(ws: ServerWebSocket<WSData>): void {
     this.connections.add(ws);
-    console.log(`[WS] Client connected (${this.connections.size} total)`);
 
     // Send connected confirmation
     this.sendTo(ws, {
@@ -236,7 +257,6 @@ export class EventBroadcaster {
    */
   onClose(ws: ServerWebSocket<WSData>): void {
     this.connections.delete(ws);
-    console.log(`[WS] Client disconnected (${this.connections.size} total)`);
   }
 
   /**
@@ -289,8 +309,8 @@ export class EventBroadcaster {
   broadcastPTYOutput(output: Uint8Array): void {
     const decoder = new TextDecoder();
     const rawText = decoder.decode(output);
-    // Strip ANSI escape codes for clean text
-    const cleanText = stripAnsi(rawText);
+    // Strip all terminal control sequences
+    const cleanText = stripAllControlSequences(rawText);
 
     // Filter out spinner frame repetition
     const { filtered, newLines } = filterPTYOutput(cleanText, this.previousLines);

@@ -21,6 +21,8 @@ export interface PTYManagerOptions {
   rows?: number;
   /** Environment variables to pass to the subprocess */
   env?: Record<string, string | undefined>;
+  /** Working directory for the subprocess */
+  cwd?: string;
 }
 
 /**

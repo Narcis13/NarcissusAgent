@@ -20,7 +20,7 @@ import { createMockSupervisor } from "./supervisor";
 const { values, positionals } = parseArgs({
   args: Bun.argv.slice(2),
   options: {
-    port: { type: "string", default: "3000" },
+    port: { type: "string", default: "13013" },
     help: { type: "boolean", short: "h" },
     verbose: { type: "boolean", short: "v", default: false },
     debug: { type: "boolean", short: "d", default: false },
@@ -67,7 +67,7 @@ Claude Code Orchestrator (CCO)
 Usage: cco [task description] [options]
 
 Options:
-  --port <number>       Server port (default: 3000)
+  --port <number>       Server port (default: 13013)
   -v, --verbose         Show hook events as they arrive
   -d, --debug           Show ALL debug output (hooks, decisions)
   --debug-file <path>   Write debug output to file
@@ -89,7 +89,7 @@ Examples:
 }
 
 const taskDescription = positionals.join(" ") || "";
-const port = parseInt(values.port ?? "3000", 10);
+const port = parseInt(values.port ?? "13013", 10);
 const verbose = values.verbose ?? false;
 const isInteractive = taskDescription === "";
 
@@ -109,25 +109,17 @@ const decoder = new TextDecoder();
 // Create hooks controller with event handlers
 const hooksController = new HooksController({
   onStop: (event) => {
-    if (debugMode) {
-      debugLog("=== STOP EVENT ===", {
-        sessionId: event.session_id,
-        transcriptPath: event.transcript_path,
-      });
-    } else if (verbose) {
-      console.error(`[CCO] Stop event received`);
-    }
-    // Broadcast to WebSocket clients
+    debugLog("Stop event", {
+      sessionId: event.session_id,
+      transcriptPath: event.transcript_path,
+    });
     eventBroadcaster.broadcastHookEvent("stop", event);
   },
   onTool: (event) => {
-    if (debugMode) {
-      debugLog("Tool event", {
-        tool: event.tool_name,
-        hasError: !!event.tool_response.error,
-      });
-    }
-    // Broadcast to WebSocket clients
+    debugLog("Tool event", {
+      tool: event.tool_name,
+      hasError: !!event.tool_response.error,
+    });
     eventBroadcaster.broadcastHookEvent("tool", event);
   },
   onSessionStart: (event) => {
@@ -135,7 +127,6 @@ const hooksController = new HooksController({
       sessionId: event.session_id,
       source: event.source,
     });
-    // Broadcast to WebSocket clients
     eventBroadcaster.broadcastHookEvent("session-start", event);
   },
   onSessionEnd: (event) => {
@@ -143,46 +134,28 @@ const hooksController = new HooksController({
       sessionId: event.session_id,
       reason: event.reason,
     });
-    // Broadcast to WebSocket clients
     eventBroadcaster.broadcastHookEvent("session-end", event);
   },
   onSupervisorCall: ({ toolHistory }) => {
-    if (debugMode) {
-      debugLog("=== SUPERVISOR CALL ===", {
-        toolCount: toolHistory.length,
-        recentTools: toolHistory.slice(-3).map((t) => t.toolName),
-      });
-    } else {
-      console.error(`[CCO] Calling supervisor (${toolHistory.length} tools tracked)`);
-    }
-    // Broadcast to WebSocket clients
+    debugLog("Supervisor call", {
+      toolCount: toolHistory.length,
+      recentTools: toolHistory.slice(-3).map((t) => t.toolName),
+    });
     eventBroadcaster.broadcastSupervisorCall(toolHistory);
   },
   onSupervisorDecision: (decision) => {
-    if (debugMode) {
-      debugLog("=== SUPERVISOR DECISION ===", decision);
-    } else {
-      console.error(
-        `[CCO] Supervisor decision: ${decision.action} - ${decision.reason}`
-      );
-    }
-    // Broadcast to WebSocket clients
+    debugLog("Supervisor decision", decision);
     eventBroadcaster.broadcastSupervisorDecision(decision);
   },
   onInject: (cmd) => {
     debugLog("Injecting command", cmd);
-    console.error(`[CCO] Injecting command: ${cmd}`);
-    // Broadcast to WebSocket clients
     eventBroadcaster.broadcastCommandInject(cmd);
   },
   onControllerStop: (reason) => {
     debugLog("Controller stopped", reason);
-    console.error(`[CCO] Controller stopped: ${reason}`);
   },
   onError: (err) => {
     debugLog("Controller error", { message: err.message, stack: err.stack });
-    console.error(`[CCO] Controller error: ${err.message}`);
-    // Broadcast to WebSocket clients
     eventBroadcaster.broadcastError(err);
   },
 });
@@ -202,24 +175,20 @@ setHooksController(hooksController);
 
 // Graceful shutdown handler
 async function shutdown(signal: string) {
-  console.log(`\n[CCO] Received ${signal}, shutting down...`);
-
   // Restore stdin to normal mode
   if (process.stdin.isTTY) {
     process.stdin.setRawMode(false);
   }
 
   try {
-    // Stop the controller if running
     if (hooksController.isRunning()) {
       hooksController.stop(`Received ${signal}`);
     }
 
     await ptyManager.cleanup();
     sessionManager.setIdle();
-    console.log("[CCO] Cleanup complete");
-  } catch (error) {
-    console.error("[CCO] Cleanup error:", error);
+  } catch {
+    // Ignore cleanup errors during shutdown
   }
 
   process.exit(0);
@@ -237,48 +206,39 @@ function getTerminalSize() {
   };
 }
 
-// Port file for hooks to read (since Claude Code sanitizes env vars for hooks)
-const CCO_PORT_FILE = "/tmp/cco-port";
-
 // Main function
 async function main() {
-  console.log(`[CCO] Starting Claude Code Orchestrator`);
-  if (isInteractive) {
-    console.log(`[CCO] Mode: Interactive (no initial task)`);
-  } else {
-    console.log(`[CCO] Task: ${taskDescription}`);
-  }
-  console.log(`[CCO] Server: http://localhost:${port}`);
-  console.log(`[CCO] Monitor UI: http://localhost:${port}/monitor`);
-  console.log(`[CCO] Session API: http://localhost:${port}/api/session`);
-  console.log(`[CCO] Hooks API: http://localhost:${port}/api/hooks/*`);
-  console.log("");
-
-  // Write port to file for hooks to read
-  writeFileSync(CCO_PORT_FILE, String(port));
-  console.log(`[CCO] Port file: ${CCO_PORT_FILE}`);
-
   // Start HTTP server
   const server = Bun.serve(createServer(port));
-  console.log(`[CCO] Server running on port ${port}`);
+  debugLog("Server running", { port, monitor: `http://localhost:${port}/monitor` });
 
   // Initialize broadcaster with server reference
   initializeBroadcaster(server);
 
   // Start session
   sessionManager.startTask(taskDescription || "interactive session");
-  console.log(`[CCO] Session state: ${sessionManager.getState().status}`);
-  console.log("");
-  console.log("--- Claude Code Output ---");
-  console.log("");
 
   // Get initial terminal size
   const { cols, rows } = getTerminalSize();
 
   // Build command: claude --dangerously-skip-permissions [task]
-  const command = ["claude", "--dangerously-skip-permissions"];
+  // Use the official CLI installer path directly, not /usr/local/bin/claude
+  // which may be a different (older) installation that doesn't support hooks.
+  // The shell alias `claude` resolves to this path, but Bun.spawn bypasses aliases.
+  const claudeBin = `${process.env.HOME}/.claude/local/claude`;
+  const command = [claudeBin, "--dangerously-skip-permissions"];
   if (taskDescription) {
     command.push(taskDescription);
+  }
+
+  // Build a clean env for the spawned Claude Code process.
+  // Remove CLAUDECODE/CLAUDE_CODE_* vars so the child doesn't think
+  // it's running nested inside another Claude Code session.
+  const childEnv: Record<string, string | undefined> = { ...process.env };
+  for (const key of Object.keys(childEnv)) {
+    if (key === "CLAUDECODE" || key.startsWith("CLAUDE_CODE_")) {
+      delete childEnv[key];
+    }
   }
 
   // Start session state broadcast interval (every 1 second)
@@ -296,10 +256,8 @@ async function main() {
   try {
     await ptyManager.spawn({
       command,
-      env: {
-        ...process.env,
-        CCO_PORT: String(port),
-      },
+      cwd: process.cwd(),
+      env: childEnv,
       onData: (data) => {
         // Stream output to stdout (preserves ANSI colors)
         // No pattern analysis - events come via hooks
@@ -309,56 +267,27 @@ async function main() {
         eventBroadcaster.broadcastPTYOutput(data);
       },
       onExit: (exitCode, signalCode) => {
-        // Stop the state broadcast interval
         clearInterval(stateBroadcastInterval);
 
-        // Restore stdin to normal mode
         if (process.stdin.isTTY) {
           process.stdin.setRawMode(false);
         }
 
-        // Stop the controller
         if (hooksController.isRunning()) {
           hooksController.stop(`PTY exited with code ${exitCode}`);
         }
 
-        console.log("");
-        console.log("--- End Claude Code Output ---");
-        console.log("");
-        console.log(`[CCO] Claude Code exited with code: ${exitCode}`);
-        if (signalCode) {
-          console.log(`[CCO] Signal: ${signalCode}`);
-        }
-
-        // Update session state
         sessionManager.setIdle();
-        console.log(`[CCO] Session state: ${sessionManager.getState().status}`);
+        debugLog("Claude Code exited", { exitCode, signalCode });
 
-        // Report runtime
-        const metadata = sessionManager.getMetadata();
-        if (metadata) {
-          console.log(`[CCO] Runtime: ${formatRuntime(metadata.runtime)}`);
-        }
-
-        // Report hooks stats
-        const stats = hooksController.getStats();
-        console.log(
-          `[CCO] Hooks stats: ${stats.stopEvents} stops, ${stats.toolCalls} tools, ${stats.supervisorCalls} supervisor calls`
-        );
-
-        // Exit with Claude's exit code
         process.exit(exitCode ?? 0);
       },
       cols,
       rows,
     });
 
-    // Start the hooks controller after PTY spawns
     hooksController.start(taskDescription || "interactive session");
-    debugLog("Hooks controller started", { state: "monitoring", taskDescription: taskDescription || "interactive" });
-    if (verbose && !debugMode) {
-      console.log(`[CCO] Hooks controller started in monitoring state`);
-    }
+    debugLog("Hooks controller started");
 
     // Forward stdin to PTY for interactive mode
     if (process.stdin.isTTY) {
@@ -378,7 +307,7 @@ async function main() {
     });
   } catch (error) {
     clearInterval(stateBroadcastInterval);
-    console.error("[CCO] Failed to spawn Claude Code:", error);
+    debugLog("Failed to spawn Claude Code", { error: String(error) });
     sessionManager.setError(String(error));
     process.exit(1);
   }
