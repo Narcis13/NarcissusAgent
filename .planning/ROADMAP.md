@@ -76,9 +76,16 @@ Plans:
 
 ## Phase 3: AI Supervisor
 
-**Goal:** Claude API integration that decides next action based on terminal transcript.
+**Goal:** Claude-supervising-Claude architecture where `claude -p` is spawned per decision.
 
 **Dependencies:** Phase 2 (detection events trigger supervisor)
+
+**Plans:** 3 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — Supervisor types, spawn wrapper, response parser
+- [ ] 03-02-PLAN.md — Prompt builder, factory function, iteration budget
+- [ ] 03-03-PLAN.md — CLI integration, replace mock supervisor
 
 **Requirements:**
 - SUP-01: Supervisor calls Claude API with recent transcript to decide next action
@@ -122,7 +129,7 @@ Plans:
 |-------|--------|----------|
 | 1 - Core Foundation | Complete | 100% |
 | 2 - Output Analysis & Loop | Complete | 100% |
-| 3 - AI Supervisor | Pending | 0% |
+| 3 - AI Supervisor | Planned | 0% |
 | 4 - Web Interface | Pending | 0% |
 
 ## Requirement Coverage
@@ -142,4 +149,4 @@ Plans:
 
 ---
 *Created: 2026-01-31*
-*Last updated: 2026-02-01 (Phase 2 complete)*
+*Last updated: 2026-02-04 (Phase 3 planned)*
