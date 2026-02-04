@@ -1,7 +1,7 @@
 # Project State: Claude Code Orchestrator
 
 **Current Phase:** 3 (in progress)
-**Current Plan:** 02 complete (Prompt Template & Supervisor Factory)
+**Current Plan:** 03 complete (CLI Integration)
 **Status:** Phase 3 In Progress
 **Last Updated:** 2026-02-05
 
@@ -11,10 +11,10 @@
 |-------|--------|----------|
 | 1 - Core Foundation | Complete | ██████████ 100% |
 | 2 - Output Analysis & Loop | Complete | ██████████ 100% |
-| 3 - AI Supervisor | In Progress | █████░░░░░ 50% |
+| 3 - AI Supervisor | In Progress | ███████░░░ 75% |
 | 4 - Web Interface | Pending | ░░░░░░░░░░ 0% |
 
-**Overall:** 10 plans complete (Phase 1 + Phase 2 + Plans 03-01, 03-02, ~62% project)
+**Overall:** 11 plans complete (Phase 1 + Phase 2 + Plans 03-01, 03-02, 03-03, ~68% project)
 
 ## Project Reference
 
@@ -22,20 +22,20 @@ See: .planning/PROJECT.md (updated 2026-01-31)
 
 **Core value:** The autonomous loop must work reliably: task -> detect completion -> supervisor decides -> inject next command -> repeat until done.
 
-**Current focus:** Phase 3 - AI Supervisor (Plan 02 complete, supervisor factory ready)
+**Current focus:** Phase 3 - AI Supervisor (Plan 03 complete, CLI integration done)
 
 ## Current Position
 
 - **Phase:** 3 - AI Supervisor (IN PROGRESS)
-- **Plan:** 02 complete (Prompt Template & Supervisor Factory)
+- **Plan:** 03 complete (CLI Integration)
 - **Blocking:** Nothing
-- **Next action:** Execute Plan 03-03 (Hooks Integration)
+- **Next action:** Execute Plan 03-04 (if exists, otherwise Phase 3 complete)
 
 ## Performance Metrics
 
 | Metric | Value |
 |--------|-------|
-| Plans completed | 10 |
+| Plans completed | 11 |
 | Plans failed | 0 |
 | Requirements done | 0/30 |
 | Session started | 2026-01-31 |
@@ -75,6 +75,8 @@ See: .planning/PROJECT.md (updated 2026-01-31)
 | Default 50 max iterations | Hard budget stop to prevent runaway supervisor loops | 2026-02-05 |
 | Default 3 consecutive failures before abort | Recovery from transient failures, abort on persistent issues | 2026-02-05 |
 | Marker mapping: COMPLETE->stop, ABORT->abort+/clear, CONTINUE->inject | Clear action semantics for supervisor decisions | 2026-02-05 |
+| Default to Claude supervisor in production | Mock supervisor opt-in via --mock-supervisor flag | 2026-02-05 |
+| CLI flag pattern for test/limit modes | --mock-* for test mode, --max-* for limits | 2026-02-05 |
 
 ### Technical Notes
 
@@ -106,6 +108,8 @@ See: .planning/PROJECT.md (updated 2026-01-31)
 - buildSupervisorPrompt accepts iterationCount and maxIterations as direct parameters
 - createClaudeSupervisor uses closure state for iteration and consecutive failure tracking
 - Supervisor factory returns SupervisorFn compatible with HooksController.setSupervisor()
+- CLI defaults to createClaudeSupervisor with --mock-supervisor fallback
+- Supervisor types re-exported from src/types.ts
 
 ### TODOs
 
@@ -146,13 +150,12 @@ See: .planning/PROJECT.md (updated 2026-01-31)
 | Response Parser | Complete | parseResponse() for [COMPLETE]/[ABORT]/[CONTINUE] markers |
 | Prompt Template | Complete | buildSupervisorPrompt with iteration N/M format and tool history |
 | Supervisor Factory | Complete | createClaudeSupervisor with budget enforcement and failure recovery |
-| Hooks Integration | Pending | Plan: 03-03 |
-| CLI Integration | Pending | Plan: 03-04 |
+| CLI Integration | Complete | CLI wired to Claude supervisor with --mock-supervisor fallback |
 
 ## Session Continuity
 
 **Last session:** 2026-02-05
-**Stopped at:** Completed 03-02-PLAN.md (Prompt Template & Supervisor Factory)
+**Stopped at:** Completed 03-03-PLAN.md (CLI Integration)
 **Resume file:** None
 
 ---
