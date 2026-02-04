@@ -48,3 +48,10 @@ export { DEFAULT_LOOP_CONFIG } from "./loop/types.ts";
 export { Cooldown } from "./loop/cooldown.ts";
 export { LoopController } from "./loop/controller.ts";
 export type { SupervisorFn } from "./loop/controller.ts";
+
+// Supervisor types
+export { createClaudeSupervisor, createMockSupervisor } from "./supervisor";
+export type {
+  SupervisorContext,
+  ClaudeSupervisorConfig,
+} from "./supervisor";
