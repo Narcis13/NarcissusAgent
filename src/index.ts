@@ -14,7 +14,12 @@ import { sessionManager } from "./session";
 import { createServer, setHooksController, setClaudeLauncher, setDecoupledMode, initializeBroadcaster } from "./server";
 import { HooksController } from "./hooks";
 import { eventBroadcaster } from "./websocket";
-import { createClaudeSupervisor, createMockSupervisor } from "./supervisor";
+import {
+  createClaudeSupervisor,
+  createMockSupervisor,
+  createInteractiveSupervisor,
+  type InteractiveSupervisor,
+} from "./supervisor";
 
 // Parse CLI arguments
 const { values, positionals } = parseArgs({
@@ -28,6 +33,8 @@ const { values, positionals } = parseArgs({
     "debug-file": { type: "string" },
     "debug-file-only": { type: "boolean", default: false },
     "mock-supervisor": { type: "boolean", default: false },
+    "interactive-supervisor": { type: "boolean", default: true },
+    "supervisor-cwd": { type: "string", default: "./master" },
     "max-iterations": { type: "string", default: "50" },
   },
   strict: true,
@@ -76,9 +83,12 @@ Options:
   -d, --debug           Show ALL debug output (hooks, decisions)
   --debug-file <path>   Write debug output to file
   --debug-file-only     Only write to file, not stderr (use with --debug-file)
-  --mock-supervisor     Use mock supervisor (for testing)
-  --max-iterations <n>  Maximum supervisor iterations (default: 50)
-  -h, --help            Show this help message
+  --mock-supervisor           Use mock supervisor (for testing)
+  --interactive-supervisor    Use interactive PTY-based supervisor (default: true)
+  --no-interactive-supervisor Use spawn-based supervisor (legacy)
+  --supervisor-cwd <path>     Working directory for interactive supervisor (default: ./master)
+  --max-iterations <n>        Maximum supervisor iterations (default: 50)
+  -h, --help                  Show this help message
 
 Monitor UI:
   http://localhost:<port>/monitor    Real-time monitoring dashboard
@@ -181,14 +191,44 @@ hooksController.setOnInject((cmd) => {
   }
 });
 
-// Set up supervisor (production: Claude, testing: mock)
+// Set up supervisor (interactive PTY, spawn-based, or mock)
 const useMockSupervisor = values["mock-supervisor"] ?? false;
+const useInteractiveSupervisor = values["interactive-supervisor"] ?? true;
+const supervisorCwd = values["supervisor-cwd"] ?? "./master";
 const maxIterations = parseInt(values["max-iterations"] ?? "50", 10);
+
+// Track interactive supervisor instance for lifecycle management
+let interactiveSupervisorInstance: InteractiveSupervisor | null = null;
 
 if (useMockSupervisor) {
   hooksController.setSupervisor(createMockSupervisor({ delay: 100 }));
   debugLog("Using mock supervisor");
+} else if (useInteractiveSupervisor) {
+  // Interactive PTY-based supervisor (recommended)
+  const { supervisor, instance } = createInteractiveSupervisor({
+    cwd: supervisorCwd,
+    maxIterations,
+    onIterationUpdate: (info) => {
+      debugLog("Iteration update", info);
+      eventBroadcaster.broadcastIterationUpdate(info);
+    },
+    onStateChange: (state) => {
+      debugLog("Supervisor state change", state);
+      eventBroadcaster.broadcastSupervisorState(state);
+    },
+    onOutput: (data) => {
+      // Broadcast supervisor output to UI
+      eventBroadcaster.broadcastSupervisorPTYOutput(data);
+      if (debugMode) {
+        debugLog("Supervisor output", data.slice(0, 200));
+      }
+    },
+  });
+  interactiveSupervisorInstance = instance;
+  hooksController.setSupervisor(supervisor);
+  debugLog("Using interactive PTY supervisor", { cwd: supervisorCwd, maxIterations });
 } else {
+  // Legacy spawn-based supervisor
   hooksController.setSupervisor(createClaudeSupervisor({
     maxIterations,
     onIterationUpdate: (info) => {
@@ -196,7 +236,7 @@ if (useMockSupervisor) {
       eventBroadcaster.broadcastIterationUpdate(info);
     },
   }));
-  debugLog("Using Claude supervisor", { maxIterations });
+  debugLog("Using spawn-based Claude supervisor", { maxIterations });
 }
 
 // Register controller with server routes
@@ -212,6 +252,12 @@ async function shutdown(signal: string) {
   try {
     if (hooksController.isRunning()) {
       hooksController.stop(`Received ${signal}`);
+    }
+
+    // Stop interactive supervisor if running
+    if (interactiveSupervisorInstance) {
+      debugLog("Stopping interactive supervisor");
+      await interactiveSupervisorInstance.stop();
     }
 
     await ptyManager.cleanup();

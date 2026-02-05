@@ -47,6 +47,10 @@ interface PTYOutputData {
   raw?: string; // Base64 raw output (for terminal rendering if needed)
 }
 
+interface SupervisorPTYOutputData {
+  output: string; // Clean text from supervisor
+}
+
 interface IterationUpdateData {
   current: number;
   max: number;
@@ -95,6 +99,7 @@ function useWebSocket(url: string) {
     null
   );
   const [terminalOutput, setTerminalOutput] = useState("");
+  const [supervisorOutput, setSupervisorOutput] = useState("");
   const [events, setEvents] = useState<EventLogEntry[]>([]);
   const [iterationData, setIterationData] = useState<IterationUpdateData | null>(null);
   const [decisionHistory, setDecisionHistory] = useState<DecisionHistoryEntry[]>([]);
@@ -158,6 +163,20 @@ function useWebSocket(url: string) {
             setTerminalOutput((prev) => {
               // Keep last 100KB of output
               const combined = prev + output;
+              if (combined.length > 100000) {
+                return combined.slice(-100000);
+              }
+              return combined;
+            });
+            break;
+          }
+
+          case "supervisor_pty_output": {
+            // Supervisor Claude output
+            const { output } = msg.data as SupervisorPTYOutputData;
+            setSupervisorOutput((prev) => {
+              // Keep last 100KB of output
+              const combined = prev + output + "\n";
               if (combined.length > 100000) {
                 return combined.slice(-100000);
               }
@@ -282,7 +301,7 @@ function useWebSocket(url: string) {
     return () => clearInterval(interval);
   }, []);
 
-  return { isConnected, sessionState, terminalOutput, events, iterationData, decisionHistory, toolHistory };
+  return { isConnected, sessionState, terminalOutput, supervisorOutput, events, iterationData, decisionHistory, toolHistory };
 }
 
 // Format runtime
@@ -563,9 +582,18 @@ function SessionPanel({ data }: { data: SessionStateData | null }) {
 }
 
 // Terminal Panel Component
-function TerminalPanel({ output }: { output: string }) {
+function TerminalPanel({
+  workerOutput,
+  supervisorOutput,
+}: {
+  workerOutput: string;
+  supervisorOutput: string;
+}) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const shouldScrollRef = useRef(true);
+  const [viewMode, setViewMode] = useState<"worker" | "supervisor">("supervisor");
+
+  const output = viewMode === "supervisor" ? supervisorOutput : workerOutput;
 
   // Auto-scroll to bottom when new output arrives
   useEffect(() => {
@@ -584,7 +612,23 @@ function TerminalPanel({ output }: { output: string }) {
 
   return (
     <div className="panel terminal-panel">
-      <div className="panel-header">Terminal Output</div>
+      <div className="panel-header">
+        <span>Terminal Output</span>
+        <div className="terminal-toggle">
+          <button
+            className={`toggle-btn ${viewMode === "supervisor" ? "active" : ""}`}
+            onClick={() => setViewMode("supervisor")}
+          >
+            Supervisor
+          </button>
+          <button
+            className={`toggle-btn ${viewMode === "worker" ? "active" : ""}`}
+            onClick={() => setViewMode("worker")}
+          >
+            Worker
+          </button>
+        </div>
+      </div>
       <div
         className="terminal panel-content"
         ref={terminalRef}
@@ -769,7 +813,7 @@ function LaunchPanel({ onLaunched }: { onLaunched: () => void }) {
 // Main App Component
 function App() {
   const wsUrl = `ws://${window.location.host}/ws`;
-  const { isConnected, sessionState, terminalOutput, events, iterationData, decisionHistory, toolHistory } =
+  const { isConnected, sessionState, terminalOutput, supervisorOutput, events, iterationData, decisionHistory, toolHistory } =
     useWebSocket(wsUrl);
   const [launched, setLaunched] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -847,7 +891,7 @@ function App() {
       </div>
 
       <div className="center-column">
-        <TerminalPanel output={terminalOutput} />
+        <TerminalPanel workerOutput={terminalOutput} supervisorOutput={supervisorOutput} />
         <ToolHistoryPanel tools={toolHistory} />
       </div>
 

@@ -23,6 +23,18 @@ let hooksController: HooksController | null = null;
 let isDecoupled = false;
 let claudeLauncher: ((task?: string) => Promise<void>) | null = null;
 
+// Supervisor stop hook callback
+let supervisorStopCallback: ((event: { session_id: string; transcript_path: string }) => void) | null = null;
+
+/**
+ * Set callback for supervisor stop hook
+ */
+export function setSupervisorStopCallback(
+  callback: ((event: { session_id: string; transcript_path: string }) => void) | null
+): void {
+  supervisorStopCallback = callback;
+}
+
 /**
  * Set the hooks controller for API endpoints
  */
@@ -244,6 +256,26 @@ app.post("/api/hooks/session-end", async (c) => {
     return c.json(response);
   } catch (error) {
     return c.json({ continue: true, error: String(error) });
+  }
+});
+
+/**
+ * POST /api/supervisor/stop - Supervisor Claude finished responding
+ * Called by the Stop hook in ./master/.claude/settings.local.json
+ */
+app.post("/api/supervisor/stop", async (c) => {
+  try {
+    const event = await c.req.json() as { session_id: string; transcript_path: string };
+    console.log(`[Supervisor] Stop hook received, transcript: ${event.transcript_path}`);
+
+    if (supervisorStopCallback) {
+      supervisorStopCallback(event);
+    }
+
+    return c.json({ ok: true });
+  } catch (error) {
+    console.error("[Supervisor] Error handling stop hook:", error);
+    return c.json({ error: String(error) }, 500);
   }
 });
 

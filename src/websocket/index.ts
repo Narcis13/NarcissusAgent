@@ -10,6 +10,7 @@ export type {
   WSMessage,
   SessionStateData,
   PTYOutputData,
+  SupervisorPTYOutputData,
   HookEventData,
   SupervisorCallData,
   SupervisorDecisionData,

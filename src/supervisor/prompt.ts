@@ -2,8 +2,74 @@
  * Supervisor Prompt Builder
  *
  * Constructs context-rich prompts for supervisor decisions.
+ * Reads the worker's transcript JSONL to provide full context.
  */
-import type { SupervisorContext } from "./types";
+
+/**
+ * Read and format transcript content from JSONL file
+ * Extracts the conversation flow: user messages, assistant responses, tool calls
+ */
+export async function readTranscript(transcriptPath: string): Promise<string> {
+  try {
+    const file = Bun.file(transcriptPath);
+    const text = await file.text();
+    const lines = text.trim().split("\n").filter(line => line.length > 0);
+
+    const formatted: string[] = [];
+
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line);
+
+        if (entry.type === "user" && entry.message?.content) {
+          const content = typeof entry.message.content === "string"
+            ? entry.message.content
+            : JSON.stringify(entry.message.content);
+          formatted.push(`[USER] ${content.slice(0, 500)}`);
+        }
+
+        if (entry.type === "assistant" && entry.message?.content) {
+          const content = entry.message.content;
+          let text = "";
+          if (typeof content === "string") {
+            text = content;
+          } else if (Array.isArray(content)) {
+            // Extract text blocks
+            const textBlocks = content
+              .filter((block: { type: string }) => block.type === "text")
+              .map((block: { text: string }) => block.text);
+            text = textBlocks.join("\n");
+          }
+          if (text) {
+            formatted.push(`[ASSISTANT] ${text.slice(0, 1000)}`);
+          }
+        }
+
+        // Tool calls
+        if (entry.type === "tool_use" || entry.tool_name) {
+          const toolName = entry.tool_name || entry.name || "unknown";
+          formatted.push(`[TOOL] ${toolName}`);
+        }
+
+        // Tool results
+        if (entry.type === "tool_result") {
+          const output = entry.content?.slice(0, 300) || "";
+          const hasError = entry.is_error;
+          formatted.push(`[TOOL_RESULT${hasError ? " ERROR" : ""}] ${output}`);
+        }
+
+      } catch {
+        // Skip malformed lines
+      }
+    }
+
+    // Return last N entries to keep prompt reasonable
+    return formatted.slice(-30).join("\n\n");
+  } catch (err) {
+    console.error(`[buildSupervisorPrompt] Failed to read transcript: ${err}`);
+    return "(failed to read transcript)";
+  }
+}
 
 /**
  * Build supervisor prompt from context
@@ -11,54 +77,48 @@ import type { SupervisorContext } from "./types";
  * Includes:
  * - Task description
  * - Iteration count (N/M format)
- * - Recent tool history (last 10, truncated)
+ * - Full transcript from worker session
  * - Clear instructions for marker response format
  *
- * NOTE: iterationCount and maxIterations are passed as direct parameters
- * rather than from SupervisorContext, since they're tracked in the
- * createClaudeSupervisor closure (not part of HooksController's context).
- *
- * @param context - SupervisorContext with task, tools, session info
- * @param iterationCount - Current iteration number (from closure)
- * @param maxIterations - Maximum allowed iterations (from closure)
- * @returns Formatted prompt string for claude -p
+ * @param transcriptContent - Pre-read transcript content
+ * @param taskDescription - The original task
+ * @param iterationCount - Current iteration number
+ * @param maxIterations - Maximum allowed iterations
+ * @returns Formatted prompt string
  */
 export function buildSupervisorPrompt(
-  context: SupervisorContext,
+  transcriptContent: string,
+  taskDescription: string,
   iterationCount: number,
   maxIterations: number
 ): string {
-  // Format tool history - last 10 entries, truncated output
-  const toolSummary = context.toolHistory.slice(-10).map((t, i) => {
-    const status = t.error ? `ERROR: ${t.error.slice(0, 50)}` : 'OK';
-    const snippet = t.output.slice(0, 150).replace(/\n/g, ' ');
-    return `[${i + 1}] ${t.toolName} (${status}): ${snippet}`;
-  }).join('\n');
+  return `You are supervising a Claude Code instance (the "worker") that is working on a task.
+Your job is to review what the worker has done and decide what happens next.
 
-  return `You supervise a Claude Code instance working on a task.
-
-TASK: ${context.taskDescription}
+TASK: ${taskDescription}
 
 ITERATION: ${iterationCount}/${maxIterations}
 
-RECENT TOOL ACTIVITY:
-${toolSummary || '(no tools executed yet)'}
+=== WORKER SESSION TRANSCRIPT ===
+${transcriptContent}
+=== END TRANSCRIPT ===
 
-Based on this information, decide the next action:
+Based on this transcript, decide the next action:
 
 - If the work is COMPLETE (task accomplished, no more work needed):
   Respond with [COMPLETE] followed by a brief summary.
 
-- If something is WRONG and we should STOP (errors, wrong direction, stuck):
+- If something is WRONG and we should STOP (errors, wrong direction, stuck in loop):
   Respond with [ABORT] followed by the reason.
 
 - If work should CONTINUE (more steps needed):
-  Respond with [CONTINUE] followed by the instruction to give the inner Claude.
+  Respond with [CONTINUE] followed by the EXACT instruction to give the worker.
+  Be specific and actionable. The worker will receive your instruction verbatim.
 
-Respond with ONLY the marker and content. No additional explanation.
+Respond with ONLY the marker and your content. No additional explanation.
 
 Example responses:
 [COMPLETE] Successfully implemented the authentication flow with JWT tokens.
-[ABORT] Inner Claude is stuck in a loop creating the same file repeatedly.
-[CONTINUE] Now write the unit tests for the auth module.`;
+[ABORT] Worker is stuck in a loop creating the same file repeatedly.
+[CONTINUE] Now write unit tests for the auth module in tests/auth.test.ts`;
 }

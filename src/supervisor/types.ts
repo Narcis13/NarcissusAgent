@@ -4,8 +4,6 @@
  * Type definitions for Claude Code CLI supervisor spawning.
  */
 
-import type { ToolHistoryEntry } from "../hooks/types";
-
 /**
  * Context passed to supervisor for decision making.
  *
@@ -15,7 +13,8 @@ import type { ToolHistoryEntry } from "../hooks/types";
  */
 export interface SupervisorContext {
   taskDescription: string;
-  toolHistory: ToolHistoryEntry[];
+  /** Path to the worker's session transcript JSONL */
+  transcriptPath: string;
   sessionId: string;
 }
 

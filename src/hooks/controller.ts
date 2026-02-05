@@ -23,7 +23,8 @@ import type {
  */
 export type SupervisorFn = (context: {
   taskDescription: string;
-  toolHistory: ToolHistoryEntry[];
+  /** Path to worker's session transcript JSONL */
+  transcriptPath: string;
   sessionId: string;
 }) => Promise<SupervisorDecision>;
 
@@ -34,6 +35,7 @@ export class HooksController {
   private supervisorFn: SupervisorFn | null = null;
   private taskDescription: string = '';
   private sessionId: string = '';
+  private transcriptPath: string = '';
   private toolHistory: ToolHistoryEntry[] = [];
   private onInjectFn: ((command: string) => void) | null = null;
   private paused: boolean = false;
@@ -84,10 +86,11 @@ export class HooksController {
     this.state = 'processing';
     this.stats.stopEvents++;
     this.sessionId = event.session_id;
+    this.transcriptPath = event.transcript_path;
 
     this.eventHandler.onStop?.(event);
 
-    // Call supervisor for decision
+    // Call supervisor for decision with transcript path
     await this.callSupervisor();
 
     return { continue: true };
@@ -167,7 +170,7 @@ export class HooksController {
     try {
       const decision = await this.supervisorFn({
         taskDescription: this.taskDescription,
-        toolHistory: this.toolHistory,
+        transcriptPath: this.transcriptPath,
         sessionId: this.sessionId,
       });
 

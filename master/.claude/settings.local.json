@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST http://localhost:13013/api/supervisor/stop -H 'Content-Type: application/json' -d @- || true"
+          }
+        ]
+      }
+    ]
+  }
+}

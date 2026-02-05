@@ -8,8 +8,18 @@
 export { createMockSupervisor } from "./mock";
 export type { MockSupervisorOptions } from "./mock";
 
-// Claude CLI supervisor (production)
+// Claude CLI supervisor (spawn-based, legacy)
 export { createClaudeSupervisor } from "./claude";
+
+// Interactive PTY-based supervisor (recommended)
+export {
+  InteractiveSupervisor,
+  createInteractiveSupervisor,
+} from "./interactive";
+export type {
+  InteractiveSupervisorConfig,
+  SupervisorPTYState,
+} from "./interactive";
 
 // Types
 export type {

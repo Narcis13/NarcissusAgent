@@ -31,7 +31,7 @@ export function createMockSupervisor(
 
     return {
       action: defaultAction,
-      reason: `Mock supervisor: ${context.toolHistory.length} tools executed, continuing task`,
+      reason: `Mock supervisor: reviewed transcript ${context.transcriptPath}, continuing task`,
       confidence: 0.9,
     };
   };

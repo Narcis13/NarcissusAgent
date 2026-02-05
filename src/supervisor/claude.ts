@@ -8,7 +8,7 @@ import type { SupervisorDecision } from "../hooks/types";
 import type { ClaudeSupervisorConfig } from "./types";
 import { spawnSupervisor } from "./spawn";
 import { parseResponse } from "./parse";
-import { buildSupervisorPrompt } from "./prompt";
+import { buildSupervisorPrompt, readTranscript } from "./prompt";
 
 const DEFAULT_MAX_ITERATIONS = 50;
 const DEFAULT_TIMEOUT = 30000;
@@ -57,8 +57,16 @@ export function createClaudeSupervisor(config: ClaudeSupervisorConfig = {}): Sup
       };
     }
 
-    // Build prompt with iteration context (passed as direct args, not from context)
-    const prompt = buildSupervisorPrompt(context, iterationCount, maxIterations);
+    // Read the worker's transcript
+    const transcriptContent = await readTranscript(context.transcriptPath);
+
+    // Build prompt with transcript
+    const prompt = buildSupervisorPrompt(
+      transcriptContent,
+      context.taskDescription,
+      iterationCount,
+      maxIterations
+    );
 
     // Spawn supervisor process
     const result = await spawnSupervisor(prompt, timeout);

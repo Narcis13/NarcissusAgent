@@ -140,9 +140,11 @@ import type { SessionState, SessionMetadata } from "../session/types";
 export type WSMessageType =
   | "session_state"
   | "pty_output"
+  | "supervisor_pty_output"
   | "hook_event"
   | "supervisor_call"
   | "supervisor_decision"
+  | "supervisor_state"
   | "command_inject"
   | "iteration_update"
   | "error"
@@ -221,6 +223,22 @@ export interface IterationUpdateData {
   percentage: number;
   /** Number of consecutive failures */
   consecutiveFailures: number;
+}
+
+/**
+ * Supervisor state message data
+ */
+export interface SupervisorStateData {
+  /** Supervisor PTY state */
+  state: "stopped" | "starting" | "ready" | "processing" | "error";
+}
+
+/**
+ * Supervisor PTY output message data
+ */
+export interface SupervisorPTYOutputData {
+  /** Clean text output (ANSI stripped) */
+  output: string;
 }
 
 /**
@@ -417,6 +435,39 @@ export class EventBroadcaster {
       type: "iteration_update",
       timestamp: new Date().toISOString(),
       data,
+    });
+  }
+
+  /**
+   * Broadcast supervisor state change (for interactive supervisor)
+   */
+  broadcastSupervisorState(state: SupervisorStateData["state"]): void {
+    this.broadcast({
+      type: "supervisor_state",
+      timestamp: new Date().toISOString(),
+      data: { state } satisfies SupervisorStateData,
+    });
+  }
+
+  /**
+   * Broadcast supervisor PTY output (for monitoring supervisor Claude)
+   */
+  broadcastSupervisorPTYOutput(output: string): void {
+    // Strip control sequences for clean output
+    const cleanText = stripAllControlSequences(output);
+
+    // Filter out spinner/noise
+    const { filtered } = filterPTYOutput(cleanText, []);
+
+    // Only broadcast if there's meaningful content
+    if (filtered.trim() === "") {
+      return;
+    }
+
+    this.broadcast({
+      type: "supervisor_pty_output",
+      timestamp: new Date().toISOString(),
+      data: { output: filtered } satisfies SupervisorPTYOutputData,
     });
   }
 }

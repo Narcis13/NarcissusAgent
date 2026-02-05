@@ -32,3 +32,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Finder (MacOS) folder config
 .DS_Store
+
+# Supervisor hooks config (override global .claude ignore)
+!master/.claude/
+!master/.claude/settings.local.json

@@ -152,6 +152,39 @@ body {
   letter-spacing: 0.05em;
   color: #9ca3af;
   flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Terminal output toggle */
+.terminal-toggle {
+  display: flex;
+  gap: 4px;
+}
+
+.toggle-btn {
+  background: var(--border-color);
+  border: 1px solid var(--border-color);
+  color: #9ca3af;
+  padding: 2px 8px;
+  font-size: 0.65rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.15s ease;
+}
+
+.toggle-btn:hover {
+  background: #1e3a5f;
+  color: #fff;
+}
+
+.toggle-btn.active {
+  background: var(--status-running);
+  border-color: var(--status-running);
+  color: #fff;
 }
 
 .panel-content {
