@@ -35,7 +35,7 @@ interface SupervisorCallData {
 }
 
 interface SupervisorDecisionData {
-  decision: { action: string; reason: string; confidence: number };
+  decision: { action: string; reason: string; confidence: number; command?: string };
 }
 
 interface CommandInjectData {
@@ -47,6 +47,23 @@ interface PTYOutputData {
   raw?: string; // Base64 raw output (for terminal rendering if needed)
 }
 
+interface IterationUpdateData {
+  current: number;
+  max: number;
+  percentage: number;
+  consecutiveFailures: number;
+}
+
+// Tool history entry from hook events
+interface ToolHistoryEntry {
+  id: number;
+  timestamp: string;
+  toolName: string;
+  input: unknown;
+  output?: string;
+  error?: string;
+}
+
 // Event log entry
 interface EventLogEntry {
   id: number;
@@ -55,6 +72,15 @@ interface EventLogEntry {
   title: string;
   detail: string;
   transcriptPath?: string;
+}
+
+// Decision history entry
+interface DecisionHistoryEntry {
+  id: number;
+  timestamp: string;
+  action: string;
+  reason: string;
+  confidence: number;
 }
 
 // Transcript line from JSONL
@@ -70,8 +96,12 @@ function useWebSocket(url: string) {
   );
   const [terminalOutput, setTerminalOutput] = useState("");
   const [events, setEvents] = useState<EventLogEntry[]>([]);
+  const [iterationData, setIterationData] = useState<IterationUpdateData | null>(null);
+  const [decisionHistory, setDecisionHistory] = useState<DecisionHistoryEntry[]>([]);
+  const [toolHistory, setToolHistory] = useState<ToolHistoryEntry[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const eventIdRef = useRef(0);
+  const toolIdRef = useRef(0);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const addEvent = useCallback(
@@ -136,6 +166,10 @@ function useWebSocket(url: string) {
             break;
           }
 
+          case "iteration_update":
+            setIterationData(msg.data as IterationUpdateData);
+            break;
+
           case "hook_event": {
             const { eventType, event } = msg.data as HookEventData;
             let detail = "";
@@ -147,11 +181,23 @@ function useWebSocket(url: string) {
                   ? `Transcript: ${String(evt.transcript_path).split("/").pop()}`
                   : "Claude finished responding";
                 break;
-              case "tool":
+              case "tool": {
+                const hasError = evt.tool_response && (evt.tool_response as Record<string, unknown>).error;
                 detail = evt.tool_name
-                  ? `Tool: ${evt.tool_name}${evt.tool_response && (evt.tool_response as Record<string, unknown>).error ? " (ERROR)" : ""}`
+                  ? `Tool: ${evt.tool_name}${hasError ? " (ERROR)" : ""}`
                   : "Tool executed";
+                // Add to tool history
+                const toolResp = evt.tool_response as Record<string, unknown> | undefined;
+                setToolHistory(prev => [{
+                  id: toolIdRef.current++,
+                  timestamp: new Date().toISOString(),
+                  toolName: String(evt.tool_name || 'unknown'),
+                  input: evt.tool_input,
+                  output: toolResp?.output ? String(toolResp.output) : undefined,
+                  error: toolResp?.error ? String(toolResp.error) : undefined,
+                }, ...prev].slice(0, 50));
                 break;
+              }
               case "session-start":
                 detail = `Source: ${evt.source || "unknown"}`;
                 break;
@@ -187,6 +233,14 @@ function useWebSocket(url: string) {
               `Decision: ${decision.action}`,
               `${decision.reason} (${(decision.confidence * 100).toFixed(0)}%)`
             );
+            // Add to decision history
+            setDecisionHistory(prev => [{
+              id: Date.now(),
+              timestamp: new Date().toISOString(),
+              action: decision.action,
+              reason: decision.reason,
+              confidence: decision.confidence,
+            }, ...prev].slice(0, 10));
             break;
           }
 
@@ -228,7 +282,7 @@ function useWebSocket(url: string) {
     return () => clearInterval(interval);
   }, []);
 
-  return { isConnected, sessionState, terminalOutput, events };
+  return { isConnected, sessionState, terminalOutput, events, iterationData, decisionHistory, toolHistory };
 }
 
 // Format runtime
@@ -249,6 +303,194 @@ function formatRuntime(ms: number): string {
 // Format timestamp
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString();
+}
+
+// Iteration Progress Component
+function IterationProgress({ data }: { data: IterationUpdateData | null }) {
+  if (!data) return null;
+
+  const { current, max, percentage, consecutiveFailures } = data;
+  const isNearLimit = percentage > 80;
+  const hasFailures = consecutiveFailures > 0;
+
+  return (
+    <div className="iteration-progress">
+      <div className="iteration-header">
+        <span className="iteration-label">Iteration</span>
+        <span className="iteration-count">{current} / {max}</span>
+      </div>
+      <div className="progress-bar-container">
+        <div
+          className={`progress-bar ${isNearLimit ? 'warning' : ''}`}
+          style={{ width: `${Math.min(percentage, 100)}%` }}
+        />
+      </div>
+      {hasFailures && (
+        <div className="failure-warning">
+          {consecutiveFailures} consecutive failure(s)
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Control Panel Component
+function ControlPanel({
+  isPaused,
+  onInject,
+  onPause,
+  onResume,
+  onStop
+}: {
+  isPaused: boolean;
+  onInject: (cmd: string) => void;
+  onPause: () => void;
+  onResume: () => void;
+  onStop: () => void;
+}) {
+  const [command, setCommand] = useState("");
+
+  const handleInject = () => {
+    if (command.trim()) {
+      onInject(command);
+      setCommand("");
+    }
+  };
+
+  return (
+    <div className="panel control-panel">
+      <div className="panel-header">Controls</div>
+      <div className="panel-content">
+        <div className="inject-row">
+          <input
+            type="text"
+            className="inject-input"
+            placeholder="Command to inject..."
+            value={command}
+            onChange={(e) => setCommand(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleInject()}
+          />
+          <button className="inject-button" onClick={handleInject}>
+            Inject
+          </button>
+        </div>
+        <div className="control-buttons">
+          {isPaused ? (
+            <button className="control-btn resume" onClick={onResume}>
+              Resume
+            </button>
+          ) : (
+            <button className="control-btn pause" onClick={onPause}>
+              Pause
+            </button>
+          )}
+          <button className="control-btn stop" onClick={onStop}>
+            Stop
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Supervisor Panel Component
+function SupervisorPanel({
+  iterationData,
+  decisionHistory,
+  controllerState
+}: {
+  iterationData: IterationUpdateData | null;
+  decisionHistory: DecisionHistoryEntry[];
+  controllerState: string;
+}) {
+  return (
+    <div className="panel supervisor-panel">
+      <div className="panel-header">Supervisor</div>
+      <div className="panel-content">
+        <div className="supervisor-state">
+          <span className={`state-indicator ${controllerState}`} />
+          <span>{controllerState}</span>
+        </div>
+
+        <IterationProgress data={iterationData} />
+
+        <div className="decision-history">
+          <div className="history-title">Recent Decisions</div>
+          {decisionHistory.length === 0 ? (
+            <div className="empty-state small">No decisions yet</div>
+          ) : (
+            decisionHistory.map(d => (
+              <div key={d.id} className={`decision-item ${d.action}`}>
+                <div className="decision-header">
+                  <span className="decision-action">{d.action}</span>
+                  <span className="decision-time">{formatTime(d.timestamp)}</span>
+                </div>
+                <div className="decision-reason">{d.reason}</div>
+                <div className="confidence-bar-container">
+                  <div
+                    className="confidence-bar"
+                    style={{ width: `${d.confidence * 100}%` }}
+                  />
+                  <span className="confidence-value">{(d.confidence * 100).toFixed(0)}%</span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Tool History Panel Component
+function ToolHistoryPanel({ tools }: { tools: ToolHistoryEntry[] }) {
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+
+  return (
+    <div className="panel tool-history-panel">
+      <div className="panel-header">Tool History ({tools.length})</div>
+      <div className="panel-content">
+        {tools.length === 0 ? (
+          <div className="empty-state small">No tools executed</div>
+        ) : (
+          tools.slice(0, 20).map((tool) => (
+            <div
+              key={tool.id}
+              className={`tool-item ${tool.error ? 'error' : ''} ${expandedId === tool.id ? 'expanded' : ''}`}
+              onClick={() => setExpandedId(expandedId === tool.id ? null : tool.id)}
+            >
+              <div className="tool-header">
+                <span className="tool-name">{tool.toolName}</span>
+                <span className={`tool-status ${tool.error ? 'error' : 'success'}`}>
+                  {tool.error ? 'ERROR' : 'OK'}
+                </span>
+              </div>
+              {expandedId === tool.id && (
+                <div className="tool-details">
+                  <div className="tool-section">
+                    <div className="section-label">Input:</div>
+                    <pre className="section-content">{JSON.stringify(tool.input, null, 2)}</pre>
+                  </div>
+                  {tool.output && (
+                    <div className="tool-section">
+                      <div className="section-label">Output:</div>
+                      <pre className="section-content">{tool.output.slice(0, 500)}{tool.output.length > 500 ? '...' : ''}</pre>
+                    </div>
+                  )}
+                  {tool.error && (
+                    <div className="tool-section error">
+                      <div className="section-label">Error:</div>
+                      <pre className="section-content">{tool.error}</pre>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
 }
 
 // Session Panel Component
@@ -341,7 +583,7 @@ function TerminalPanel({ output }: { output: string }) {
   };
 
   return (
-    <div className="panel">
+    <div className="panel terminal-panel">
       <div className="panel-header">Terminal Output</div>
       <div
         className="terminal panel-content"
@@ -430,11 +672,11 @@ function EventLogPanel({ events }: { events: EventLogEntry[] }) {
   const [transcriptPath, setTranscriptPath] = useState<string | null>(null);
 
   return (
-    <div className="panel">
+    <div className="panel event-log-panel">
       <div className="panel-header">Event Log</div>
       <div className="panel-content">
         {events.length === 0 ? (
-          <div className="empty-state">No events yet...</div>
+          <div className="empty-state small">No events yet...</div>
         ) : (
           <div className="event-log">
             {events.map((event) => (
@@ -495,7 +737,7 @@ function LaunchPanel({ onLaunched }: { onLaunched: () => void }) {
   };
 
   return (
-    <div className="panel">
+    <div className="panel launch-panel-wrapper">
       <div className="panel-header">Launch Claude</div>
       <div className="panel-content">
         <div className="launch-panel">
@@ -527,13 +769,53 @@ function LaunchPanel({ onLaunched }: { onLaunched: () => void }) {
 // Main App Component
 function App() {
   const wsUrl = `ws://${window.location.host}/ws`;
-  const { isConnected, sessionState, terminalOutput, events } =
+  const { isConnected, sessionState, terminalOutput, events, iterationData, decisionHistory, toolHistory } =
     useWebSocket(wsUrl);
   const [launched, setLaunched] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
 
   const isDecoupled = sessionState?.decoupled ?? false;
   const claudeRunning = sessionState?.claudeRunning ?? false;
   const showLaunchPanel = isDecoupled && !claudeRunning && !launched;
+
+  // Control handlers
+  const handleInject = async (cmd: string) => {
+    try {
+      await fetch("/api/control/inject", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command: cmd }),
+      });
+    } catch (err) {
+      console.error("Failed to inject:", err);
+    }
+  };
+
+  const handlePause = async () => {
+    try {
+      await fetch("/api/control/pause", { method: "POST" });
+      setIsPaused(true);
+    } catch (err) {
+      console.error("Failed to pause:", err);
+    }
+  };
+
+  const handleResume = async () => {
+    try {
+      await fetch("/api/control/resume", { method: "POST" });
+      setIsPaused(false);
+    } catch (err) {
+      console.error("Failed to resume:", err);
+    }
+  };
+
+  const handleStop = async () => {
+    try {
+      await fetch("/api/control/stop", { method: "POST" });
+    } catch (err) {
+      console.error("Failed to stop:", err);
+    }
+  };
 
   return (
     <div className="app-container">
@@ -543,15 +825,40 @@ function App() {
           {isDecoupled && (
             <span className="mode-badge">DECOUPLED</span>
           )}
+          {isPaused && (
+            <span className="mode-badge paused">PAUSED</span>
+          )}
           <span className={`connection-dot ${isConnected ? "connected" : ""}`} />
           <span>{isConnected ? "Connected" : "Disconnected"}</span>
         </div>
       </header>
 
       {showLaunchPanel && <LaunchPanel onLaunched={() => setLaunched(true)} />}
-      <SessionPanel data={sessionState} />
-      <TerminalPanel output={terminalOutput} />
-      <EventLogPanel events={events} />
+
+      <div className="left-column">
+        <SessionPanel data={sessionState} />
+        <ControlPanel
+          isPaused={isPaused}
+          onInject={handleInject}
+          onPause={handlePause}
+          onResume={handleResume}
+          onStop={handleStop}
+        />
+      </div>
+
+      <div className="center-column">
+        <TerminalPanel output={terminalOutput} />
+        <ToolHistoryPanel tools={toolHistory} />
+      </div>
+
+      <div className="right-column">
+        <SupervisorPanel
+          iterationData={iterationData}
+          decisionHistory={decisionHistory}
+          controllerState={sessionState?.controllerState || 'idle'}
+        />
+        <EventLogPanel events={events} />
+      </div>
     </div>
   );
 }

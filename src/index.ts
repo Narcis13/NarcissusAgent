@@ -189,7 +189,13 @@ if (useMockSupervisor) {
   hooksController.setSupervisor(createMockSupervisor({ delay: 100 }));
   debugLog("Using mock supervisor");
 } else {
-  hooksController.setSupervisor(createClaudeSupervisor({ maxIterations }));
+  hooksController.setSupervisor(createClaudeSupervisor({
+    maxIterations,
+    onIterationUpdate: (info) => {
+      debugLog("Iteration update", info);
+      eventBroadcaster.broadcastIterationUpdate(info);
+    },
+  }));
   debugLog("Using Claude supervisor", { maxIterations });
 }
 

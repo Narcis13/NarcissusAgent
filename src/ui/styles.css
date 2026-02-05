@@ -33,10 +33,10 @@ body {
   line-height: 1.5;
 }
 
-/* Layout */
+/* Updated Layout - 3 column with left/center/right */
 .app-container {
   display: grid;
-  grid-template-columns: 280px 1fr 320px;
+  grid-template-columns: 280px 1fr 340px;
   grid-template-rows: auto 1fr;
   height: 100vh;
   gap: 1px;
@@ -58,6 +58,51 @@ body {
   font-weight: 600;
   margin: 0;
   color: #fff;
+}
+
+/* Column layouts */
+.left-column,
+.right-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+}
+
+.center-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+}
+
+/* Panel sizing in columns */
+.left-column > .panel:first-child {
+  flex: 0 0 auto;
+}
+
+.left-column > .control-panel {
+  flex: 0 0 auto;
+}
+
+.center-column > .terminal-panel {
+  flex: 1 1 60%;
+  min-height: 200px;
+}
+
+.center-column > .tool-history-panel {
+  flex: 1 1 40%;
+  min-height: 150px;
+}
+
+.right-column > .supervisor-panel {
+  flex: 1 1 50%;
+  min-height: 200px;
+}
+
+.right-column > .event-log-panel {
+  flex: 1 1 50%;
+  min-height: 150px;
 }
 
 /* Connection indicator */
@@ -106,6 +151,7 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: #9ca3af;
+  flex-shrink: 0;
 }
 
 .panel-content {
@@ -409,8 +455,13 @@ body {
   letter-spacing: 0.05em;
 }
 
+.mode-badge.paused {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: var(--status-analyzing);
+}
+
 /* Launch panel (decouple mode) */
-.panel:has(.launch-panel) {
+.launch-panel-wrapper {
   grid-column: 1 / -1;
 }
 
@@ -471,4 +522,365 @@ body {
   text-align: center;
   padding: 2rem;
   font-style: italic;
+}
+
+.empty-state.small {
+  padding: 1rem;
+  font-size: 0.8rem;
+}
+
+/* ============================================
+   Iteration Progress
+   ============================================ */
+.iteration-progress {
+  margin-bottom: 1rem;
+}
+
+.iteration-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.iteration-label {
+  color: #9ca3af;
+  font-size: 0.75rem;
+}
+
+.iteration-count {
+  font-weight: 600;
+  color: #fff;
+  font-size: 0.85rem;
+}
+
+.progress-bar-container {
+  height: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  background: var(--status-running);
+  transition: width 0.3s ease;
+}
+
+.progress-bar.warning {
+  background: var(--status-analyzing);
+}
+
+.failure-warning {
+  color: var(--status-error);
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+/* ============================================
+   Control Panel
+   ============================================ */
+.control-panel .panel-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.inject-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.inject-input {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 0.5rem;
+  color: var(--terminal-fg);
+  font-family: inherit;
+  font-size: 0.8rem;
+  outline: none;
+}
+
+.inject-input:focus {
+  border-color: #6366f1;
+}
+
+.inject-button {
+  background: #6366f1;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.inject-button:hover {
+  background: #4f46e5;
+}
+
+.control-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.control-btn {
+  flex: 1;
+  padding: 0.5rem;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.control-btn.pause {
+  background: var(--status-analyzing);
+  color: #000;
+}
+
+.control-btn.pause:hover {
+  background: #d97706;
+}
+
+.control-btn.resume {
+  background: var(--status-running);
+  color: #fff;
+}
+
+.control-btn.resume:hover {
+  background: #059669;
+}
+
+.control-btn.stop {
+  background: var(--status-error);
+  color: #fff;
+}
+
+.control-btn.stop:hover {
+  background: #dc2626;
+}
+
+/* ============================================
+   Decision History
+   ============================================ */
+.decision-history {
+  margin-top: 0.5rem;
+}
+
+.history-title {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+  letter-spacing: 0.05em;
+}
+
+.decision-item {
+  padding: 0.5rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+  border-left: 3px solid var(--border-color);
+}
+
+.decision-item.stop,
+.decision-item.complete {
+  border-left-color: var(--status-running);
+}
+
+.decision-item.inject,
+.decision-item.continue {
+  border-left-color: #6366f1;
+}
+
+.decision-item.abort {
+  border-left-color: var(--status-error);
+}
+
+.decision-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.25rem;
+}
+
+.decision-action {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+}
+
+.decision-time {
+  font-size: 0.7rem;
+  color: #6b7280;
+}
+
+.decision-reason {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  margin-bottom: 0.5rem;
+  word-break: break-word;
+}
+
+.confidence-bar-container {
+  height: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 3px;
+  position: relative;
+  overflow: hidden;
+}
+
+.confidence-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #ef4444 0%, #f59e0b 50%, #10b981 100%);
+  background-size: 200% 100%;
+  background-position: right;
+}
+
+.confidence-value {
+  position: absolute;
+  right: 4px;
+  top: -14px;
+  font-size: 0.65rem;
+  color: #9ca3af;
+}
+
+/* ============================================
+   Tool History
+   ============================================ */
+.tool-item {
+  padding: 0.5rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.tool-item:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.tool-item.error {
+  border-left: 3px solid var(--status-error);
+}
+
+.tool-item.expanded {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.tool-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.tool-name {
+  font-weight: 500;
+  font-size: 0.8rem;
+}
+
+.tool-status {
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.tool-status.success {
+  color: var(--status-running);
+}
+
+.tool-status.error {
+  color: var(--status-error);
+}
+
+.tool-details {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.tool-section {
+  margin-bottom: 0.5rem;
+}
+
+.tool-section.error {
+  color: var(--status-error);
+}
+
+.section-label {
+  font-size: 0.7rem;
+  color: #9ca3af;
+  margin-bottom: 0.25rem;
+}
+
+.section-content {
+  font-size: 0.7rem;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.5rem;
+  border-radius: 4px;
+  overflow-x: auto;
+  max-height: 150px;
+  overflow-y: auto;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ============================================
+   Supervisor Panel
+   ============================================ */
+.supervisor-state {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.state-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--status-idle);
+}
+
+.state-indicator.monitoring {
+  background: var(--status-running);
+  animation: pulse 2s infinite;
+}
+
+.state-indicator.calling_supervisor {
+  background: var(--status-analyzing);
+  animation: pulse 0.5s infinite;
+}
+
+.state-indicator.processing {
+  background: var(--status-analyzing);
+}
+
+.state-indicator.injecting {
+  background: #6366f1;
+}
+
+.state-indicator.stopped {
+  background: var(--status-error);
+}
+
+/* Custom scrollbars for all panels */
+.panel-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.panel-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.panel-content::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+.panel-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
 }

@@ -38,6 +38,20 @@ export interface ParsedResponse {
 }
 
 /**
+ * Iteration progress information for UI
+ */
+export interface IterationInfo {
+  /** Current iteration number (1-indexed) */
+  current: number;
+  /** Maximum iterations allowed */
+  max: number;
+  /** Progress percentage (0-100) */
+  percentage: number;
+  /** Number of consecutive failures */
+  consecutiveFailures: number;
+}
+
+/**
  * Configuration for createClaudeSupervisor
  */
 export interface ClaudeSupervisorConfig {
@@ -47,4 +61,6 @@ export interface ClaudeSupervisorConfig {
   timeout?: number;
   /** Maximum consecutive failures before abort (default: 3) */
   maxConsecutiveFailures?: number;
+  /** Callback called after each iteration with progress info */
+  onIterationUpdate?: (info: IterationInfo) => void;
 }

@@ -36,6 +36,7 @@ export class HooksController {
   private sessionId: string = '';
   private toolHistory: ToolHistoryEntry[] = [];
   private onInjectFn: ((command: string) => void) | null = null;
+  private paused: boolean = false;
 
   constructor(eventHandler: HooksEventHandler = {}) {
     this.eventHandler = eventHandler;
@@ -141,6 +142,12 @@ export class HooksController {
    * Call the supervisor and handle the decision
    */
   private async callSupervisor(): Promise<void> {
+    // Skip supervisor call if paused - stay in monitoring state
+    if (this.paused) {
+      this.state = 'monitoring';
+      return;
+    }
+
     if (!this.supervisorFn) {
       // No supervisor configured - default to stop
       const defaultDecision: SupervisorDecision = {
@@ -230,6 +237,39 @@ export class HooksController {
     this.state = 'stopped';
     this.stats.endTime = new Date();
     this.eventHandler.onControllerStop?.(reason);
+  }
+
+  /**
+   * Pause supervisor calls (keeps monitoring but won't call supervisor)
+   */
+  pause(): void {
+    this.paused = true;
+  }
+
+  /**
+   * Resume supervisor calls
+   */
+  resume(): void {
+    this.paused = false;
+  }
+
+  /**
+   * Check if paused
+   */
+  isPaused(): boolean {
+    return this.paused;
+  }
+
+  /**
+   * Inject a command directly (for manual control from UI)
+   */
+  injectCommand(command: string): void {
+    if (!this.onInjectFn) {
+      throw new Error('No inject handler configured');
+    }
+    this.stats.commandsInjected++;
+    this.onInjectFn(command);
+    this.eventHandler.onInject?.(command);
   }
 
   /**

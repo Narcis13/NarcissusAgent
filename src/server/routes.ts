@@ -103,6 +103,78 @@ app.post("/api/claude/launch", async (c) => {
   }
 });
 
+// ============ Control Endpoints ============
+
+/**
+ * POST /api/control/inject - Manually inject a command
+ * Body: { command: string }
+ */
+app.post("/api/control/inject", async (c) => {
+  if (!hooksController) {
+    return c.json({ error: "Hooks controller not initialized" }, 503);
+  }
+
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const command = (body as { command?: string }).command;
+    if (!command) {
+      return c.json({ error: "Command required" }, 400);
+    }
+    hooksController.injectCommand(command);
+    return c.json({ ok: true, command });
+  } catch (error) {
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
+/**
+ * POST /api/control/pause - Pause the monitoring loop
+ */
+app.post("/api/control/pause", (c) => {
+  if (!hooksController) {
+    return c.json({ error: "Hooks controller not initialized" }, 503);
+  }
+  hooksController.pause();
+  return c.json({ ok: true, paused: true });
+});
+
+/**
+ * POST /api/control/resume - Resume the monitoring loop
+ */
+app.post("/api/control/resume", (c) => {
+  if (!hooksController) {
+    return c.json({ error: "Hooks controller not initialized" }, 503);
+  }
+  hooksController.resume();
+  return c.json({ ok: true, paused: false });
+});
+
+/**
+ * POST /api/control/stop - Force stop the controller
+ */
+app.post("/api/control/stop", (c) => {
+  if (!hooksController) {
+    return c.json({ error: "Hooks controller not initialized" }, 503);
+  }
+  hooksController.stop("Manual stop from UI");
+  return c.json({ ok: true });
+});
+
+/**
+ * GET /api/control/status - Get controller status including paused state
+ */
+app.get("/api/control/status", (c) => {
+  if (!hooksController) {
+    return c.json({ error: "Hooks controller not initialized" }, 503);
+  }
+  return c.json({
+    state: hooksController.getState(),
+    paused: hooksController.isPaused(),
+    stats: hooksController.getStats(),
+    toolHistory: hooksController.getToolHistory(),
+  });
+});
+
 // ============ Hook Endpoints ============
 
 /**

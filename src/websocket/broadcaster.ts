@@ -144,6 +144,7 @@ export type WSMessageType =
   | "supervisor_call"
   | "supervisor_decision"
   | "command_inject"
+  | "iteration_update"
   | "error"
   | "connected";
 
@@ -206,6 +207,20 @@ export interface SupervisorDecisionData {
  */
 export interface CommandInjectData {
   command: string;
+}
+
+/**
+ * Iteration update message data
+ */
+export interface IterationUpdateData {
+  /** Current iteration number (1-indexed) */
+  current: number;
+  /** Maximum iterations allowed */
+  max: number;
+  /** Progress percentage (0-100) */
+  percentage: number;
+  /** Number of consecutive failures */
+  consecutiveFailures: number;
 }
 
 /**
@@ -391,6 +406,17 @@ export class EventBroadcaster {
       type: "error",
       timestamp: new Date().toISOString(),
       data: { message: error.message, stack: error.stack },
+    });
+  }
+
+  /**
+   * Broadcast iteration update
+   */
+  broadcastIterationUpdate(data: IterationUpdateData): void {
+    this.broadcast({
+      type: "iteration_update",
+      timestamp: new Date().toISOString(),
+      data,
     });
   }
 }

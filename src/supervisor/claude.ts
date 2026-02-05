@@ -28,6 +28,7 @@ export function createClaudeSupervisor(config: ClaudeSupervisorConfig = {}): Sup
     maxIterations = DEFAULT_MAX_ITERATIONS,
     timeout = DEFAULT_TIMEOUT,
     maxConsecutiveFailures = DEFAULT_MAX_CONSECUTIVE_FAILURES,
+    onIterationUpdate,
   } = config;
 
   // Closure state for iteration and failure tracking
@@ -36,6 +37,14 @@ export function createClaudeSupervisor(config: ClaudeSupervisorConfig = {}): Sup
 
   return async (context): Promise<SupervisorDecision> => {
     iterationCount++;
+
+    // Notify UI of iteration progress
+    onIterationUpdate?.({
+      current: iterationCount,
+      max: maxIterations,
+      percentage: (iterationCount / maxIterations) * 100,
+      consecutiveFailures,
+    });
 
     // Enforce iteration budget - hard stop at limit
     if (iterationCount >= maxIterations) {
