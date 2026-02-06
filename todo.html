@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>To Do</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui; max-width: 400px; margin: 40px auto; padding: 0 20px; }
+    h1 { margin-bottom: 16px; }
+    form { display: flex; gap: 8px; margin-bottom: 16px; }
+    input { flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 16px; }
+    button { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; background: #333; color: #fff; }
+    ul { list-style: none; }
+    li { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #eee; }
+    li.done span { text-decoration: line-through; color: #999; }
+    li span { flex: 1; }
+    li button { background: none; color: #999; font-size: 18px; padding: 0 4px; }
+  </style>
+</head>
+<body>
+  <h1>To Do</h1>
+  <form id="form">
+    <input id="input" placeholder="Add a task..." required>
+    <button type="submit">Add</button>
+  </form>
+  <ul id="list"></ul>
+  <script>
+    const form = document.getElementById("form");
+    const input = document.getElementById("input");
+    const list = document.getElementById("list");
+    let todos = JSON.parse(localStorage.getItem("todos") || "[]");
+
+    function render() {
+      list.innerHTML = "";
+      todos.forEach((t, i) => {
+        const li = document.createElement("li");
+        if (t.done) li.classList.add("done");
+        li.innerHTML = `<input type="checkbox" ${t.done ? "checked" : ""}><span>${t.text}</span><button>&times;</button>`;
+        li.querySelector("input").onchange = () => { todos[i].done = !todos[i].done; save(); };
+        li.querySelector("button").onclick = () => { todos.splice(i, 1); save(); };
+        list.appendChild(li);
+      });
+    }
+
+    function save() { localStorage.setItem("todos", JSON.stringify(todos)); render(); }
+
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      todos.push({ text: input.value, done: false });
+      input.value = "";
+      save();
+    };
+
+    render();
+  </script>
+</body>
+</html>
